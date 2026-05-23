@@ -51,23 +51,35 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 18px;
+    gap: 14px;
+    margin-bottom: 24px;
   }
   .brand {
-    display: flex; align-items: center; gap: 12px;
+    display: flex; align-items: center; gap: 14px;
   }
   .brand-mark {
-    width: 40px; height: 40px; border-radius: 12px;
+    width: 52px; height: 52px; border-radius: 16px;
     background: linear-gradient(135deg, var(--pink), var(--blue));
     display: grid; place-items: center;
-    font-size: 22px;
-    box-shadow: var(--shadow);
+    font-size: 28px;
+    box-shadow: 0 12px 32px rgba(255, 111, 181, 0.25), 0 12px 32px rgba(111, 181, 255, 0.18);
+    position: relative;
+  }
+  .brand-mark::after {
+    content: "";
+    position: absolute; inset: -2px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, var(--pink), var(--blue));
+    opacity: 0.35; filter: blur(14px); z-index: -1;
   }
   .brand h1 {
-    font-size: 18px; margin: 0; letter-spacing: 0.2px;
+    font-size: 30px; margin: 0; letter-spacing: -0.3px; line-height: 1.05;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--pink) 0%, #e7a8de 45%, var(--blue) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
   }
-  .brand small { color: var(--text-dim); font-size: 12px; }
+  .brand small { color: var(--text-dim); font-size: 12px; letter-spacing: 0.2px; margin-top: 2px; display: block; }
   .status-dot {
     width: 8px; height: 8px; border-radius: 50%;
     background: #ffb86b; display: inline-block; margin-right: 6px;
@@ -205,6 +217,34 @@
   }
   .bucket-legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: -1px; }
 
+  /* Situation stats */
+  .situation-stats { display: flex; flex-direction: column; gap: 14px; }
+  .sit-row { display: flex; flex-direction: column; gap: 6px; }
+  .sit-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 13px;
+  }
+  .sit-name { font-weight: 600; color: var(--text); }
+  .sit-count { font-size: 11px; color: var(--text-faint); font-family: ui-monospace, monospace; }
+  .sit-bar {
+    position: relative; height: 12px; border-radius: 6px;
+    background: linear-gradient(90deg, var(--pink) 0%, var(--neutral) 50%, var(--blue) 100%);
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+  .sit-marker {
+    position: absolute; top: 50%;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 2px solid #fff;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.4), 0 0 12px rgba(255,255,255,0.4);
+  }
+  .sit-meta {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim);
+  }
+  .sit-meta .lbl { font-weight: 600; }
+  .sit-empty { color: var(--text-faint); font-size: 13px; text-align: center; padding: 12px 0; }
+
   .section-title {
     font-size: 13px; font-weight: 700; color: var(--text-dim);
     text-transform: uppercase; letter-spacing: 1px;
@@ -297,6 +337,30 @@
   .slider-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-top: 6px; padding: 0 2px; }
   .slider-ends .l { color: var(--pink-soft); }
   .slider-ends .r { color: var(--blue-soft); }
+  .slider-ticks {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    margin-top: 4px; padding: 0 6px;
+  }
+  .slider-ticks span {
+    text-align: center; font-size: 9px; color: var(--text-faint);
+    letter-spacing: 0.5px;
+  }
+
+  .situation-row {
+    display: grid; grid-template-columns: auto 1fr; gap: 10px;
+    align-items: center; margin-top: 14px;
+  }
+  .situation-row label { font-size: 12px; color: var(--text-dim); }
+  .situation-row select,
+  .situation-row input[type=text] {
+    background: var(--card-strong); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 14px; font-family: inherit;
+    color-scheme: dark; width: 100%;
+  }
+  .situation-row input[type=text] { grid-column: 2; }
+  .situation-row select:focus,
+  .situation-row input[type=text]:focus { outline: 2px solid rgba(255,255,255,0.18); }
 
   .time-row {
     display: flex; gap: 10px; align-items: center; margin-top: 14px;
@@ -362,7 +426,8 @@
 
   @media (max-width: 640px) {
     .container { padding: 16px 12px 100px; }
-    .brand h1 { font-size: 16px; }
+    .brand h1 { font-size: 22px; }
+    .brand-mark { width: 44px; height: 44px; font-size: 24px; border-radius: 14px; }
     .cell .day-num { font-size: 11px; top: 4px; left: 6px; }
     .cell .sym { font-size: 12px; bottom: 4px; right: 6px; }
     .cell .badge { font-size: 9px; min-width: 16px; height: 16px; }
@@ -447,6 +512,11 @@
     </section>
 
     <section class="card">
+      <div class="section-title">Wie fühlst du dich in welcher Situation?</div>
+      <div class="situation-stats" id="situationStats"></div>
+    </section>
+
+    <section class="card">
       <div class="section-title">Streaks &amp; Trend</div>
       <div class="stats-grid" id="streakStats"></div>
     </section>
@@ -463,8 +533,16 @@
       <div class="feel-val"><span id="feelVal">50</span></div>
     </div>
     <div class="slider-wrap">
-      <input type="range" min="0" max="100" value="50" class="slider" id="slider" />
-      <div class="slider-ends"><span class="l">♀ weiblich</span><span class="r">männlich ♂</span></div>
+      <input type="range" min="0" max="6" step="1" value="3" class="slider" id="slider" />
+      <div class="slider-ticks" id="sliderTicks"></div>
+    </div>
+    <div class="situation-row">
+      <label for="situationSelect">Situation</label>
+      <select id="situationSelect">
+        <option value="">— keine —</option>
+        <option value="__new__">+ neue Situation…</option>
+      </select>
+      <input type="text" id="situationInput" placeholder="Eigene Situation eingeben" hidden />
     </div>
     <div class="time-row">
       <label for="timeInput">Uhrzeit</label>
@@ -507,6 +585,26 @@ const db = getDatabase(app);
 const PINK = [255, 111, 181];
 const BLUE = [111, 181, 255];
 const lerp = (a,b,t) => a + (b-a)*t;
+
+/* 7-stufige semantische Skala. Werte bleiben auf 0–100-Achse, damit alle
+   bestehenden Statistiken, Farben und gespeicherten Daten kompatibel sind. */
+const SCALE = [
+  { v: 0,   label: "sehr weiblich",   tick: "♀♀" },
+  { v: 17,  label: "weiblich",        tick: "♀"  },
+  { v: 33,  label: "leicht weiblich", tick: "♀·" },
+  { v: 50,  label: "neutral · fluid", tick: "⚧"  },
+  { v: 67,  label: "leicht männlich", tick: "·♂" },
+  { v: 83,  label: "männlich",        tick: "♂"  },
+  { v: 100, label: "sehr männlich",   tick: "♂♂" }
+];
+function scaleIndexFromValue(v) {
+  let best = 0, bestDist = Infinity;
+  for (let i = 0; i < SCALE.length; i++) {
+    const d = Math.abs(SCALE[i].v - v);
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  return best;
+}
 function valueToColor(v) {
   const t = Math.max(0, Math.min(1, v/100));
   const r = Math.round(lerp(PINK[0], BLUE[0], t));
@@ -522,13 +620,7 @@ function valueToSymbol(v) {
   return "♂";
 }
 function valueToLabel(v) {
-  if (v <= 12)  return "sehr weiblich";
-  if (v <= 30)  return "weiblich";
-  if (v <= 45)  return "eher weiblich";
-  if (v <= 55)  return "neutral · fluid";
-  if (v <= 70)  return "eher männlich";
-  if (v <= 88)  return "männlich";
-  return "sehr männlich";
+  return SCALE[scaleIndexFromValue(v)].label;
 }
 function bucket(v) {
   if (v <= 33) return "f";
@@ -655,9 +747,22 @@ const sheetTitle = document.getElementById("sheetTitle");
 const sheetSubtitle = document.getElementById("sheetSubtitle");
 const entryList = document.getElementById("entryList");
 const entriesTitle = document.getElementById("entriesTitle");
+const situationSelect = document.getElementById("situationSelect");
+const situationInput = document.getElementById("situationInput");
+const sliderTicks = document.getElementById("sliderTicks");
 
-function updateFeel(v) {
-  v = Number(v);
+// Render tick marks unter dem Slider (einmalig)
+sliderTicks.innerHTML = SCALE.map(s => `<span>${s.tick}</span>`).join("");
+
+function sliderValue() {
+  return SCALE[Number(slider.value)].v;
+}
+function setSliderToValue(v) {
+  slider.value = String(scaleIndexFromValue(Number(v)));
+}
+
+function updateFeel() {
+  const v = sliderValue();
   const c = valueToColor(v);
   feelSym.textContent = valueToSymbol(v);
   feelLabel.textContent = valueToLabel(v);
@@ -667,7 +772,53 @@ function updateFeel(v) {
   feelSym.style.transform = `scale(${1 + Math.abs(v-50)/200})`;
   sheet.style.boxShadow = `0 30px 80px rgba(0,0,0,0.55), 0 0 0 2px rgba(${c.r},${c.g},${c.b},0.35), 0 0 60px rgba(${c.r},${c.g},${c.b},0.25)`;
 }
-slider.addEventListener("input", () => updateFeel(slider.value));
+slider.addEventListener("input", updateFeel);
+
+/* Situation-Dropdown */
+function collectKnownSituations() {
+  const set = new Set();
+  for (const dk in DATA) {
+    for (const id in DATA[dk]) {
+      const s = (DATA[dk][id].situation || "").trim();
+      if (s) set.add(s);
+    }
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b, "de"));
+}
+function populateSituationOptions(selected) {
+  const known = collectKnownSituations();
+  const opts = ['<option value="">— keine —</option>'];
+  for (const s of known) {
+    const safe = s.replace(/"/g, "&quot;");
+    opts.push(`<option value="${safe}">${safe}</option>`);
+  }
+  opts.push('<option value="__new__">+ neue Situation…</option>');
+  situationSelect.innerHTML = opts.join("");
+  if (selected && known.includes(selected)) {
+    situationSelect.value = selected;
+  } else if (selected) {
+    // selected exists in entry but not yet in derived list (just-deleted last usage etc.)
+    const safe = selected.replace(/"/g, "&quot;");
+    situationSelect.insertAdjacentHTML(
+      "beforeend",
+      `<option value="${safe}" selected>${safe}</option>`
+    );
+    situationSelect.value = selected;
+  } else {
+    situationSelect.value = "";
+  }
+  situationInput.hidden = true;
+  situationInput.value = "";
+}
+situationSelect.addEventListener("change", () => {
+  if (situationSelect.value === "__new__") {
+    situationInput.hidden = false;
+    situationInput.focus();
+  } else {
+    situationInput.hidden = true;
+    situationInput.value = "";
+  }
+});
 
 function openSheet(dk) {
   selectedDayKey = dk;
@@ -676,15 +827,16 @@ function openSheet(dk) {
   const isToday = dk === dayKey(new Date());
   sheetTitle.textContent = isToday ? "Heutiger Check-in" : `Check-in · ${d.toLocaleDateString("de-DE", {weekday:"long", day:"numeric", month:"long", year:"numeric"})}`;
   sheetSubtitle.textContent = isToday ? "Wie fühlst du dich gerade?" : "Eintrag rückwirkend erfassen oder bearbeiten.";
-  // default slider value: last entry of the day, else 50
+  // default slider value: last entry of the day, else neutral
   const entries = DATA[dk] ? Object.entries(DATA[dk]).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)) : [];
   const seed = entries.length ? Number(entries[entries.length-1][1].value) : 50;
-  slider.value = seed;
-  updateFeel(seed);
+  setSliderToValue(seed);
+  updateFeel();
   // default time: now for today, 12:00 otherwise
   const now = new Date();
   if (isToday) timeInput.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   else timeInput.value = "12:00";
+  populateSituationOptions("");
   renderEntryList(dk);
   backdrop.classList.add("open");
   sheet.classList.add("open");
@@ -717,25 +869,28 @@ function renderEntryList(dk) {
   for (const [id, e] of entries) {
     const v = Number(e.value);
     const c = valueToColor(v);
+    const sit = (e.situation || "").trim();
+    const sitSafe = sit ? sit.replace(/[<>&]/g, ch => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[ch])) : "";
     const row = document.createElement("div");
     row.className = "entry" + (id === editingEntryId ? " active" : "");
     row.innerHTML = `
       <div class="dot" style="background:${c.hex}"></div>
       <div class="info">
         <div class="time">${e.ts ? fmtTime(e.ts) : "—"} · ${valueToLabel(v)}</div>
-        <div class="meta">Wert ${v}</div>
+        <div class="meta">Wert ${v}${sitSafe ? ` · ${sitSafe}` : ""}</div>
       </div>
       <button class="del" title="Löschen">✕</button>
     `;
     row.addEventListener("click", (ev) => {
       if (ev.target.classList.contains("del")) return;
       editingEntryId = id;
-      slider.value = v;
-      updateFeel(v);
+      setSliderToValue(v);
+      updateFeel();
       if (e.ts) {
         const d = new Date(e.ts);
         timeInput.value = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
       }
+      populateSituationOptions(sit);
       renderEntryList(dk);
     });
     row.querySelector(".del").addEventListener("click", async (ev) => {
@@ -750,15 +905,25 @@ function renderEntryList(dk) {
 
 document.getElementById("saveBtn").onclick = async () => {
   if (!selectedDayKey) return;
-  const v = Number(slider.value);
+  const v = sliderValue();
   const [hh, mm] = (timeInput.value || "12:00").split(":").map(Number);
   const d = parseDayKey(selectedDayKey);
   d.setHours(hh||0, mm||0, 0, 0);
   const ts = d.getTime();
+  let situation = "";
+  if (situationSelect.value === "__new__") {
+    situation = situationInput.value.trim();
+  } else {
+    situation = situationSelect.value.trim();
+  }
   const payload = { value: v, ts };
+  if (situation) payload.situation = situation;
   try {
     if (editingEntryId) {
-      await update(ref(db, `checkins/${selectedDayKey}/${editingEntryId}`), payload);
+      // Auf null setzen, damit Firebase das Feld entfernt, wenn keine Situation gewählt
+      await update(ref(db, `checkins/${selectedDayKey}/${editingEntryId}`), {
+        value: v, ts, situation: situation || null
+      });
     } else {
       await push(ref(db, `checkins/${selectedDayKey}`), payload);
     }
@@ -772,7 +937,8 @@ document.getElementById("saveBtn").onclick = async () => {
 function computeStats() {
   const dayKeys = Object.keys(DATA).sort();
   const dayAvgs = {};      // dk -> avg
-  const allEntries = [];   // {dk, value, ts}
+  const allEntries = [];   // {dk, value, ts, situation}
+  const bySituation = {};  // name -> { sum, count, values: [] }
   for (const dk of dayKeys) {
     const vals = [];
     for (const id in DATA[dk]) {
@@ -780,11 +946,17 @@ function computeStats() {
       const v = Number(e.value);
       if (isNaN(v)) continue;
       vals.push(v);
-      allEntries.push({ dk, id, value: v, ts: e.ts });
+      const sit = (e.situation || "").trim();
+      allEntries.push({ dk, id, value: v, ts: e.ts, situation: sit });
+      if (sit) {
+        if (!bySituation[sit]) bySituation[sit] = { sum: 0, count: 0 };
+        bySituation[sit].sum += v;
+        bySituation[sit].count += 1;
+      }
     }
     if (vals.length) dayAvgs[dk] = avg(vals);
   }
-  return { dayAvgs, allEntries, dayKeys: Object.keys(dayAvgs).sort() };
+  return { dayAvgs, allEntries, bySituation, dayKeys: Object.keys(dayAvgs).sort() };
 }
 
 function renderOverview(stats) {
@@ -1056,16 +1228,55 @@ function renderStreaks(stats) {
   const maxColor = maxDay ? valueToColor(stats.dayAvgs[maxDay]).hex : null;
   const trendArrow = slope > 0.5 ? "↗" : slope < -0.5 ? "↘" : "→";
   const trendDir = slope > 0.5 ? "Richtung männlich" : slope < -0.5 ? "Richtung weiblich" : "stabil";
+  const fmtDay = dk => dk ? parseDayKey(dk).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "long" }) : "";
   document.getElementById("streakStats").innerHTML = [
     cell("Längste ♀-Serie", longestF + " Tage", "in Folge", "var(--pink)"),
     cell("Längste ⚧-Serie", longestFL + " Tage", "fluid in Folge", "var(--neutral)"),
     cell("Längste ♂-Serie", longestM + " Tage", "in Folge", "var(--blue)"),
     cell("Volatilität σ", vol.toFixed(1), "Streuung Tageswerte"),
-    cell("Min-Tag", minDay ? stats.dayAvgs[minDay].toFixed(1) : "—", minDay || "", minColor),
-    cell("Max-Tag", maxDay ? stats.dayAvgs[maxDay].toFixed(1) : "—", maxDay || "", maxColor),
+    cell("Weiblichster Tag", minDay ? stats.dayAvgs[minDay].toFixed(1) : "—", fmtDay(minDay), minColor),
+    cell("Männlichster Tag", maxDay ? stats.dayAvgs[maxDay].toFixed(1) : "—", fmtDay(maxDay), maxColor),
     cell("Trend 30d " + trendArrow, slope.toFixed(2) + "/d", trendDir),
     cell("Top-Tageszeit", topPart, topPartCnt + " Check-ins")
   ].join("");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+  }[ch]));
+}
+
+function renderSituationStats(stats) {
+  const container = document.getElementById("situationStats");
+  const entries = Object.entries(stats.bySituation)
+    .map(([name, agg]) => ({ name, avg: agg.sum / agg.count, count: agg.count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "de"));
+
+  if (!entries.length) {
+    container.innerHTML = `<div class="sit-empty">Noch keine Situationen erfasst — füge im Check-in eine hinzu.</div>`;
+    return;
+  }
+
+  container.innerHTML = entries.map(({ name, avg, count }) => {
+    const c = valueToColor(avg);
+    const pct = Math.max(0, Math.min(100, avg));
+    return `
+      <div class="sit-row">
+        <div class="sit-head">
+          <span class="sit-name">${escapeHtml(name)}</span>
+          <span class="sit-count">${count}×</span>
+        </div>
+        <div class="sit-bar">
+          <div class="sit-marker" style="left:${pct}%; background:${c.hex}; border-color:${c.hex};"></div>
+        </div>
+        <div class="sit-meta">
+          <span>${valueToLabel(avg)}</span>
+          <span class="lbl" style="color:${c.hex}">Ø ${avg.toFixed(1)}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
 function applyMoodBackground(stats) {
@@ -1093,12 +1304,14 @@ function renderAll() {
   renderHeatmap(stats);
   renderHistogram(stats);
   renderWeekdays(stats);
+  renderSituationStats(stats);
   renderStreaks(stats);
+  if (sheet.classList.contains("open")) populateSituationOptions(situationSelect.value && situationSelect.value !== "__new__" ? situationSelect.value : "");
   if (selectedDayKey) renderEntryList(selectedDayKey);
 }
 
 // First paint before data arrives
-updateFeel(50);
+updateFeel();
 renderAll();
 </script>
 </body>
