@@ -156,6 +156,17 @@ let serverConnected = false;
 let dbError = false;
 let flushTimer = null;
 let backoffMs = 2000;
+let lastSyncErrorToastAt = 0;
+const SYNC_ERROR_TOAST_COOLDOWN_MS = 30000;
+
+function notifySyncIssue(text) {
+  const now = Date.now();
+  if (now - lastSyncErrorToastAt < SYNC_ERROR_TOAST_COOLDOWN_MS) return;
+  lastSyncErrorToastAt = now;
+  if (typeof showToast === "function") {
+    showToast(text, null, null, 4000);
+  }
+}
 
 function applyPending(data) {
   for (const p of pendingQueue) {
@@ -224,6 +235,7 @@ async function flushPending() {
     if (pendingQueue.length) flushPending();
   } catch (err) {
     console.warn("flush failed, will retry:", err.message);
+    notifySyncIssue("Sync-Problem — wir versuchen es automatisch erneut.");
     updateStatus();
     clearTimeout(flushTimer);
     flushTimer = setTimeout(flushPending, backoffMs);
@@ -256,6 +268,7 @@ onValue(ref(db, "checkins"), (snap) => {
 }, (err) => {
   dbError = true;
   updateStatus();
+  notifySyncIssue("Verbindung zur Datenbank gestört. Deine Eingaben bleiben lokal gespeichert.");
   console.error(err);
 });
 
@@ -1508,8 +1521,24 @@ document.getElementById("quickCheckin").addEventListener("click", () => {
   openSheet(dayKey(new Date()));
 });
 
-/* Info-Toggles (<details class="info">): Außenklick und Escape schließen,
-   neue Öffnung schließt parallel offene. */
+/* Info-Karten (<details class="info">): explizites Toggle statt nativem.
+   Vermeidet Race-Conditions zwischen Default-Action und Click-Listener,
+   und sorgt für deterministisches Schließen auf Desktop UND Touch. */
+function closeAllInfoCards() {
+  for (const d of document.querySelectorAll("details.info[open]")) {
+    d.removeAttribute("open");
+  }
+}
+for (const summary of document.querySelectorAll("details.info > summary")) {
+  summary.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const d = summary.parentElement;
+    const wasOpen = d.hasAttribute("open");
+    closeAllInfoCards();
+    if (!wasOpen) d.setAttribute("open", "");
+  });
+}
 document.addEventListener("click", (ev) => {
   const opened = document.querySelectorAll("details.info[open]");
   if (!opened.length) return;
@@ -1518,19 +1547,8 @@ document.addEventListener("click", (ev) => {
   }
 });
 document.addEventListener("keydown", (ev) => {
-  if (ev.key !== "Escape") return;
-  const opened = document.querySelectorAll("details.info[open]");
-  if (!opened.length) return;
-  for (const d of opened) d.removeAttribute("open");
+  if (ev.key === "Escape") closeAllInfoCards();
 });
-document.addEventListener("toggle", (ev) => {
-  const t = ev.target;
-  if (!(t instanceof HTMLDetailsElement) || !t.classList.contains("info")) return;
-  if (!t.open) return;
-  for (const d of document.querySelectorAll("details.info[open]")) {
-    if (d !== t) d.removeAttribute("open");
-  }
-}, true);
 
 // First paint before data arrives
 updateFeel();
