@@ -17,7 +17,10 @@
           <small>Tägliche Check-ins · live synchronisiert</small>
         </div>
       </div>
-      <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
+      <div class="header-tools">
+        <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
+        <button class="header-btn" id="exportBtn" type="button" title="Daten als JSON exportieren" aria-label="Daten als JSON exportieren">⤓</button>
+      </div>
     </header>
 
     <div class="flag-stripe" aria-hidden="true"></div>
@@ -42,13 +45,21 @@
     </section>
 
     <section class="card">
-      <div class="section-title">Dein Spektrum</div>
+      <div class="section-title">Dein Spektrum
+        <details class="info"><summary aria-label="Infos zu dieser Statistik">ⓘ</summary>
+          <p>Median und Quantile (p10–p90) sind robuster gegen Ausreißer als der Mittelwert — gerade bei stark fluiden Verläufen aussagekräftiger.</p>
+        </details>
+      </div>
       <div class="overview-bars" id="overviewBars"></div>
       <div class="stats-grid overview-meta" id="overviewMeta"></div>
     </section>
 
     <section class="card">
-      <div class="section-title">Fluidität &amp; Verteilung</div>
+      <div class="section-title">Fluidität &amp; Verteilung
+        <details class="info"><summary aria-label="Infos zum Fluiditäts-Index">ⓘ</summary>
+          <p>EMA-Studien zur „temporal variation in gender identity" zeigen: über 90 % der Befragten erleben tägliche Schwankungen in Maskulinitäts-/Femininitäts-Empfinden. Der Fluiditäts-Index quantifiziert deine persönliche Streuung als σ (Standardabweichung) und ordnet sie auf 0–100 ein. Höher heißt nicht „besser", nur beweglicher.</p>
+        </details>
+      </div>
       <div class="fluidity-row" id="fluidityRow"></div>
       <div class="section-title" style="margin-top:18px">Wie oft welches Spektrum</div>
       <div class="spectrum-hist" id="spectrumHist"></div>
@@ -56,7 +67,11 @@
     </section>
 
     <section class="card">
-      <div class="section-title">Verteilung &amp; Durchschnittsfarben</div>
+      <div class="section-title">Verteilung &amp; Durchschnittsfarben
+        <details class="info"><summary aria-label="Infos zur Verteilung">ⓘ</summary>
+          <p>Diese App misst Gender bewusst als Spektrum statt als Kategorie, weil binäre Kategorisierung Variation maskiert. Die Buckets weiblich/fluid/männlich dienen nur der Lesbarkeit — der zugrunde liegende Wert bleibt kontinuierlich.</p>
+        </details>
+      </div>
       <div class="bucket-bar" id="bucketBar">
         <div style="width:0%; background: var(--pink)"></div>
         <div style="width:0%; background: var(--neutral)"></div>
@@ -78,15 +93,27 @@
     </section>
 
     <section class="card">
-      <div class="section-title">Wochentags-Durchschnitt</div>
+      <div class="section-title">Wochentags-Durchschnitt
+        <details class="info"><summary aria-label="Infos zu Wochentagen">ⓘ</summary>
+          <p>Soziale Kontexte (Arbeit, Wochenende) beeinflussen Gender-Ausdruck messbar — Forschung dokumentiert systematische Wochenend-/Werktags-Unterschiede in selbst-wahrgenommener Femininität und Maskulinität.</p>
+        </details>
+      </div>
       <div class="weekday-row" id="weekdayRow"></div>
-      <div class="section-title" style="margin-top:18px">Check-ins nach Uhrzeit</div>
+      <div class="section-title" style="margin-top:18px">Check-ins nach Uhrzeit
+        <details class="info"><summary aria-label="Infos zum Tageszeit-Histogramm">ⓘ</summary>
+          <p>Ecological Momentary Assessment (EMA) — mehrere Mini-Erhebungen pro Tag statt einer Mega-Umfrage — gilt in der Gender-Forschung als Goldstandard für innere Zustände. Wann du checkst, beeinflusst, was du misst.</p>
+        </details>
+      </div>
       <div class="hist" id="hist"></div>
       <div class="hist-labels"><div>0</div><div></div><div></div><div>3</div><div></div><div></div><div>6</div><div></div><div></div><div>9</div><div></div><div></div><div>12</div><div></div><div></div><div>15</div><div></div><div></div><div>18</div><div></div><div></div><div>21</div><div></div><div></div></div>
     </section>
 
     <section class="card">
-      <div class="section-title">Wie fühlst du dich in welcher Situation?</div>
+      <div class="section-title">Wie fühlst du dich in welcher Situation?
+        <details class="info"><summary aria-label="Infos zur Situations-Statistik">ⓘ</summary>
+          <p>Kontext (mit wem, wo, in welcher Rolle) erklärt einen großen Teil der Within-Person-Varianz in Gender-Identität. Deine Situations-Tags machen diesen Effekt sichtbar — je mehr du taggst, desto belastbarer die Muster.</p>
+        </details>
+      </div>
       <div class="situation-stats" id="situationStats"></div>
     </section>
 
@@ -146,6 +173,8 @@
   <button class="fab" id="quickCheckin" type="button" aria-label="Jetzt Check-in">
     <span class="fab-icon">+</span>
   </button>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script type="module" src="app.js"></script>
 </body>
