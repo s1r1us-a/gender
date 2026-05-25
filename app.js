@@ -86,6 +86,20 @@ function stddev(arr){
   const m = avg(arr);
   return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length);
 }
+function median(arr){
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const mid = Math.floor(s.length/2);
+  return s.length % 2 ? s[mid] : (s[mid-1] + s[mid]) / 2;
+}
+function percentile(arr, p){
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const idx = (s.length - 1) * (p/100);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return s[lo];
+  return s[lo] + (s[hi] - s[lo]) * (idx - lo);
+}
 function setText(id, t){ const el = document.getElementById(id); if(el) el.textContent = t; }
 
 /* ---------- State ---------- */
@@ -301,6 +315,8 @@ const entriesTitle = document.getElementById("entriesTitle");
 const situationSelect = document.getElementById("situationSelect");
 const situationInput = document.getElementById("situationInput");
 const sliderTicks = document.getElementById("sliderTicks");
+const noteInput = document.getElementById("noteInput");
+const noteCount = document.getElementById("noteCount");
 
 // Render tick marks unter dem Slider (einmalig)
 sliderTicks.innerHTML = SCALE.map(s => `<span>${s.tick}</span>`).join("");
@@ -324,6 +340,12 @@ function updateFeel() {
   sheet.style.boxShadow = `0 30px 80px rgba(0,0,0,0.55), 0 0 0 2px rgba(${c.r},${c.g},${c.b},0.35), 0 0 60px rgba(${c.r},${c.g},${c.b},0.25)`;
 }
 slider.addEventListener("input", updateFeel);
+
+/* Notiz-Counter live aktualisieren */
+function updateNoteCount() {
+  noteCount.textContent = String((noteInput.value || "").length);
+}
+noteInput.addEventListener("input", updateNoteCount);
 
 /* Situation-Dropdown */
 function collectKnownSituations() {
@@ -388,6 +410,8 @@ function openSheet(dk) {
   if (isToday) timeInput.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   else timeInput.value = "12:00";
   populateSituationOptions("");
+  noteInput.value = "";
+  updateNoteCount();
   renderEntryList(dk);
   backdrop.classList.add("open");
   sheet.classList.add("open");
@@ -421,7 +445,9 @@ function renderEntryList(dk) {
     const v = Number(e.value);
     const c = valueToColor(v);
     const sit = (e.situation || "").trim();
-    const sitSafe = sit ? sit.replace(/[<>&]/g, ch => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[ch])) : "";
+    const note = (e.note || "").trim();
+    const sitSafe = sit ? escapeHtml(sit) : "";
+    const noteSafe = note ? escapeHtml(note) : "";
     const row = document.createElement("div");
     row.className = "entry" + (id === editingEntryId ? " active" : "");
     row.innerHTML = `
@@ -429,6 +455,7 @@ function renderEntryList(dk) {
       <div class="info">
         <div class="time">${e.ts ? fmtTime(e.ts) : "—"} · ${valueToLabel(v)}</div>
         <div class="meta">Wert ${v}${sitSafe ? ` · ${sitSafe}` : ""}</div>
+        ${noteSafe ? `<div class="note-indicator" title="${noteSafe}">${noteSafe}</div>` : ""}
       </div>
       <button class="del" title="Löschen">✕</button>
     `;
@@ -442,6 +469,8 @@ function renderEntryList(dk) {
         timeInput.value = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
       }
       populateSituationOptions(sit);
+      noteInput.value = note;
+      updateNoteCount();
       renderEntryList(dk);
     });
     row.querySelector(".del").addEventListener("click", (ev) => {
@@ -459,16 +488,20 @@ function genTempId() {
   return "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-function saveEntry(dk, entryId, v, ts, situation) {
+function saveEntry(dk, entryId, v, ts, situation, note) {
   if (!DATA[dk]) DATA[dk] = {};
+  const cleanNote = (note || "").trim();
   if (entryId) {
     // Bearbeiten
     const updatePayload = { value: v, ts };
     updatePayload.situation = situation || null;
+    updatePayload.note = cleanNote || null;
     // Lokal sofort anwenden (null = entfernen)
     DATA[dk][entryId] = { ...DATA[dk][entryId], value: v, ts };
     if (situation) DATA[dk][entryId].situation = situation;
     else delete DATA[dk][entryId].situation;
+    if (cleanNote) DATA[dk][entryId].note = cleanNote;
+    else delete DATA[dk][entryId].note;
 
     if (entryId.startsWith("local-")) {
       // Pending push-Op patchen statt neue Op zu erzeugen
@@ -476,6 +509,7 @@ function saveEntry(dk, entryId, v, ts, situation) {
       if (p) {
         p.payload = { value: v, ts };
         if (situation) p.payload.situation = situation;
+        if (cleanNote) p.payload.note = cleanNote;
       }
     } else {
       pendingQueue.push({ op: "update", dk, entryId, payload: updatePayload });
@@ -485,6 +519,7 @@ function saveEntry(dk, entryId, v, ts, situation) {
     const tempId = genTempId();
     const payload = { value: v, ts };
     if (situation) payload.situation = situation;
+    if (cleanNote) payload.note = cleanNote;
     DATA[dk][tempId] = payload;
     pendingQueue.push({ op: "push", tempId, dk, payload });
   }
@@ -528,7 +563,8 @@ document.getElementById("saveBtn").onclick = () => {
   } else {
     situation = situationSelect.value.trim();
   }
-  saveEntry(selectedDayKey, editingEntryId, v, ts, situation);
+  const note = (noteInput.value || "").trim();
+  saveEntry(selectedDayKey, editingEntryId, v, ts, situation, note);
   closeSheet();
 };
 
@@ -558,9 +594,10 @@ function computeStats() {
   return { dayAvgs, allEntries, bySituation, dayKeys: Object.keys(dayAvgs).sort() };
 }
 
-function renderOverview(stats) {
+/* Zeitliche Aggregate für Heute/Woche/Monat/Spektrum bündeln */
+function computePeriodAggregates(stats) {
   const today = dayKey(new Date());
-  const todayAvg = stats.dayAvgs[today];
+  const todayAvg = stats.dayAvgs[today] ?? null;
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6);
   const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate()-29);
 
@@ -571,29 +608,226 @@ function renderOverview(stats) {
     if (d >= monthAgo) monthAvgs.push(stats.dayAvgs[dk]);
   }
   const allDayAvgs = Object.values(stats.dayAvgs);
-  const allTime = avg(allDayAvgs);
-  const week = avg(weekAvgs);
-  const month = avg(monthAvgs);
+  return {
+    today, todayAvg,
+    week: avg(weekAvgs), weekDays: weekAvgs.length,
+    month: avg(monthAvgs), monthDays: monthAvgs.length,
+    allDayAvgs,
+    trackedDays: stats.dayKeys.length
+  };
+}
+
+function renderOverviewBars(stats) {
+  const agg = computePeriodAggregates(stats);
+  const container = document.getElementById("overviewBars");
+
+  function valueBar(label, value, sub) {
+    if (value == null || isNaN(value)) {
+      return `
+        <div class="bar-row">
+          <div class="bar-head"><span class="bar-name">${label}</span><span class="bar-count">${sub}</span></div>
+          <div class="spectrum-bar no-data"></div>
+          <div class="bar-meta"><span>keine Daten</span><span class="lbl">—</span></div>
+        </div>`;
+    }
+    const c = valueToColor(value);
+    const pct = Math.max(0, Math.min(100, value));
+    return `
+      <div class="bar-row">
+        <div class="bar-head"><span class="bar-name">${label}</span><span class="bar-count">${sub}</span></div>
+        <div class="spectrum-bar">
+          <div class="spectrum-marker" style="left:${pct}%; background:${c.hex}; border-color:${c.hex};"></div>
+        </div>
+        <div class="bar-meta"><span>${valueToLabel(value)}</span><span class="lbl" style="color:${c.hex}">Ø ${value.toFixed(1)}</span></div>
+      </div>`;
+  }
+
+  function spectrumBar() {
+    if (!agg.allDayAvgs.length) {
+      return `
+        <div class="bar-row">
+          <div class="bar-head"><span class="bar-name">Mein Spektrum</span><span class="bar-count">—</span></div>
+          <div class="spectrum-bar no-data"></div>
+          <div class="bar-meta"><span>keine Daten</span><span class="lbl">—</span></div>
+        </div>`;
+    }
+    const minV = Math.min(...agg.allDayAvgs);
+    const maxV = Math.max(...agg.allDayAvgs);
+    const medV = median(agg.allDayAvgs);
+    const p10 = percentile(agg.allDayAvgs, 10);
+    const p90 = percentile(agg.allDayAvgs, 90);
+    const cMed = valueToColor(medV);
+    const cMin = valueToColor(minV);
+    const cMax = valueToColor(maxV);
+    const rangeLeft = Math.max(0, Math.min(100, p10));
+    const rangeRight = Math.max(0, Math.min(100, p90));
+    const lblMin = valueToLabel(minV);
+    const lblMax = valueToLabel(maxV);
+    const sameLabel = lblMin === lblMax;
+    const spread = sameLabel
+      ? `vorwiegend „${lblMin}"`
+      : `zwischen „${lblMin}" und „${lblMax}"`;
+    return `
+      <div class="bar-row">
+        <div class="bar-head">
+          <span class="bar-name">Mein Spektrum</span>
+          <span class="bar-count">${agg.trackedDays} Tage</span>
+        </div>
+        <div class="spectrum-bar">
+          <div class="spectrum-range" style="left:${rangeLeft}%; right:${100-rangeRight}%;"></div>
+          <div class="spectrum-marker is-small" style="left:${Math.max(0,Math.min(100,minV))}%; background:${cMin.hex}; border-color:${cMin.hex};"></div>
+          <div class="spectrum-marker is-small" style="left:${Math.max(0,Math.min(100,maxV))}%; background:${cMax.hex}; border-color:${cMax.hex};"></div>
+          <div class="spectrum-marker" style="left:${Math.max(0,Math.min(100,medV))}%; background:${cMed.hex}; border-color:${cMed.hex};"></div>
+        </div>
+        <div class="bar-meta">
+          <span>${spread}</span>
+          <span class="lbl" style="color:${cMed.hex}">Median ${medV.toFixed(1)}</span>
+        </div>
+      </div>`;
+  }
+
+  container.innerHTML = [
+    valueBar("Heute", agg.todayAvg, agg.todayAvg != null ? "1 Tag" : "—"),
+    valueBar("Letzte 7 Tage", agg.week, agg.weekDays + " Tage"),
+    valueBar("Letzte 30 Tage", agg.month, agg.monthDays + " Tage"),
+    spectrumBar()
+  ].join("");
+}
+
+function renderOverviewMeta(stats) {
   const totalCheckins = stats.allEntries.length;
   const trackedDays = stats.dayKeys.length;
   const avgPerDay = trackedDays ? (totalCheckins / trackedDays) : 0;
-
   function statCell(label, value, sub) {
-    const c = (typeof value === "number") ? valueToColor(value) : null;
     return `<div class="stat">
       <div class="label">${label}</div>
-      <div class="value" style="${c ? `color:${c.hex}`:''}">${value===null||value===undefined||(typeof value==="number"&&isNaN(value)) ? "—" : (typeof value==="number" ? value.toFixed(1) : value)}</div>
+      <div class="value">${value}</div>
       <div class="sub">${sub||""}</div>
     </div>`;
   }
-  document.getElementById("overviewStats").innerHTML = [
-    statCell("Heute Ø", todayAvg ?? null, todayAvg!=null ? valueToLabel(todayAvg) : "keine Daten"),
-    statCell("Woche Ø", week ?? null, weekAvgs.length + " Tage"),
-    statCell("Monat Ø", month ?? null, monthAvgs.length + " Tage"),
-    statCell("All-Time Ø", allTime ?? null, trackedDays + " Tage"),
+  document.getElementById("overviewMeta").innerHTML = [
     statCell("Check-ins", totalCheckins, "gesamt"),
-    statCell("Ø pro Tag", avgPerDay ? avgPerDay.toFixed(2) : "—", "Einträge")
+    statCell("Ø pro Tag", avgPerDay ? avgPerDay.toFixed(2) : "—", "Einträge"),
+    statCell("Erfasste Tage", trackedDays, "mit Daten")
   ].join("");
+}
+
+function renderHeroToday(stats) {
+  const inner = document.getElementById("heroInner");
+  const agg = computePeriodAggregates(stats);
+  if (agg.todayAvg == null) {
+    inner.innerHTML = `
+      <div class="hero-empty">
+        <div class="hero-empty-title">Wie fühlst du dich gerade?</div>
+        <div class="hero-empty-sub">Heute noch kein Check-in. Trag deinen Moment ein.</div>
+        <button class="btn-checkin" id="heroCheckinBtn" type="button">Jetzt Check-in</button>
+      </div>`;
+    const btn = document.getElementById("heroCheckinBtn");
+    if (btn) btn.onclick = () => openSheet(dayKey(new Date()));
+    return;
+  }
+  const v = agg.todayAvg;
+  const c = valueToColor(v);
+  const sym = valueToSymbol(v);
+  // Trend: Heute vs. Schnitt der vorherigen 6 Tage
+  const yesterdayAvgs = [];
+  for (let i = 1; i <= 6; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const v2 = stats.dayAvgs[dayKey(d)];
+    if (v2 != null) yesterdayAvgs.push(v2);
+  }
+  let trendHtml = `<span class="hero-trend"><span class="arrow">→</span> noch kein Wochenvergleich</span>`;
+  if (yesterdayAvgs.length >= 2) {
+    const prev = avg(yesterdayAvgs);
+    const diff = v - prev;
+    if (Math.abs(diff) < 3) {
+      trendHtml = `<span class="hero-trend"><span class="arrow">→</span> stabil verglichen mit den letzten Tagen</span>`;
+    } else {
+      const arrow = diff > 0 ? "↗" : "↘";
+      const word = diff > 0 ? "männlicher" : "weiblicher";
+      trendHtml = `<span class="hero-trend"><span class="arrow" style="color:${c.hex}">${arrow}</span> ${Math.abs(diff).toFixed(0)} Punkte ${word} als letzte Tage</span>`;
+    }
+  }
+  inner.innerHTML = `
+    <div class="hero-sym" style="color:${c.hex}; text-shadow: 0 0 28px ${c.hex};">${sym}</div>
+    <div class="hero-main">
+      <div class="hero-eyebrow">Du heute</div>
+      <div class="hero-value">
+        <span class="num" style="color:${c.hex}">${v.toFixed(0)}</span>
+        <span class="lbl">${valueToLabel(v)}</span>
+      </div>
+      ${trendHtml}
+    </div>
+    <div class="hero-cta">
+      <button class="btn-checkin" id="heroCheckinBtn" type="button">+ Check-in</button>
+    </div>
+  `;
+  const btn = document.getElementById("heroCheckinBtn");
+  if (btn) btn.onclick = () => openSheet(dayKey(new Date()));
+}
+
+function computeFluidityIndex(stats) {
+  const vals = Object.values(stats.dayAvgs);
+  if (vals.length < 2) return { score: null, sd: 0, label: "noch zu wenig Daten" };
+  const sd = stddev(vals);
+  // SD-Maximum bei gleichmäßig oszillierenden 0/100-Tagen ist 50.
+  const score = Math.max(0, Math.min(100, Math.round(sd / 50 * 100)));
+  let label;
+  if (score <= 20)      label = "sehr stabil";
+  else if (score <= 40) label = "leicht fluid";
+  else if (score <= 60) label = "fluid";
+  else if (score <= 80) label = "sehr fluid";
+  else                  label = "extrem fluid";
+  return { score, sd, label };
+}
+
+function renderFluidityIndex(stats) {
+  const f = computeFluidityIndex(stats);
+  const container = document.getElementById("fluidityRow");
+  if (f.score == null) {
+    container.innerHTML = `
+      <div class="fluidity-score">
+        <div class="num">—</div>
+        <div class="lbl">${f.label}</div>
+      </div>
+      <div class="fluidity-explain">
+        Sobald du ein paar Tage erfasst hast, zeigt dir der <b>Fluiditäts-Index</b>, wie stark deine Identität schwankt – das Kernkonzept dieser App, in einer Zahl.
+      </div>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="fluidity-score">
+      <div class="num">${f.score}</div>
+      <div class="lbl">${f.label}</div>
+      <div class="sub">σ = ${f.sd.toFixed(1)}</div>
+      <div class="meter"><div style="width:${f.score}%"></div></div>
+    </div>
+    <div class="fluidity-explain">
+      Dein Identitätsspektrum schwankt mit einem Index von <b>${f.score}/100</b>.
+      Je höher der Wert, desto fluider bist du – statt eines starren Mittelwerts
+      misst er die <b>Beweglichkeit</b> deiner Tageswerte.
+    </div>`;
+}
+
+function renderSpectrumHistogram(stats) {
+  const hist = document.getElementById("spectrumHist");
+  const labels = document.getElementById("spectrumHistLabels");
+  const counts = new Array(SCALE.length).fill(0);
+  for (const v of Object.values(stats.dayAvgs)) {
+    counts[scaleIndexFromValue(v)]++;
+  }
+  const max = Math.max(1, ...counts);
+  hist.innerHTML = counts.map((n, i) => {
+    const c = valueToColor(SCALE[i].v);
+    const h = (n / max) * 100;
+    return `<div class="sbar" style="height:${h}%; background:${c.hex};" title="${SCALE[i].label}: ${n} Tag${n===1?"":"e"}"></div>`;
+  }).join("");
+  labels.innerHTML = counts.map((n, i) => `
+    <div>
+      <div>${SCALE[i].tick}</div>
+      <div class="lbl-count">${n}</div>
+    </div>
+  `).join("");
 }
 
 function renderBuckets(stats) {
@@ -1095,7 +1329,11 @@ function renderAll() {
   renderGrid();
   const stats = computeStats();
   applyMoodBackground(stats);
-  renderOverview(stats);
+  renderHeroToday(stats);
+  renderOverviewBars(stats);
+  renderOverviewMeta(stats);
+  renderFluidityIndex(stats);
+  renderSpectrumHistogram(stats);
   renderBuckets(stats);
   renderSparkline(stats);
   renderHeatmap(stats);
@@ -1107,6 +1345,11 @@ function renderAll() {
   if (sheet.classList.contains("open")) populateSituationOptions(situationSelect.value && situationSelect.value !== "__new__" ? situationSelect.value : "");
   if (selectedDayKey) renderEntryList(selectedDayKey);
 }
+
+/* FAB für Quick-Check-in */
+document.getElementById("quickCheckin").addEventListener("click", () => {
+  openSheet(dayKey(new Date()));
+});
 
 // First paint before data arrives
 updateFeel();
