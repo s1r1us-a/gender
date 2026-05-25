@@ -20,6 +20,12 @@
       <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
     </header>
 
+    <div class="flag-stripe" aria-hidden="true"></div>
+
+    <section class="card hero-card" id="heroCard">
+      <div class="hero-inner" id="heroInner"></div>
+    </section>
+
     <section class="card">
       <div class="month-nav">
         <button class="iconbtn" id="prevMonth" aria-label="Vorheriger Monat">‹</button>
@@ -36,8 +42,17 @@
     </section>
 
     <section class="card">
-      <div class="section-title">Überblick</div>
-      <div class="stats-grid" id="overviewStats"></div>
+      <div class="section-title">Dein Spektrum</div>
+      <div class="overview-bars" id="overviewBars"></div>
+      <div class="stats-grid overview-meta" id="overviewMeta"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">Fluidität &amp; Verteilung</div>
+      <div class="fluidity-row" id="fluidityRow"></div>
+      <div class="section-title" style="margin-top:18px">Wie oft welches Spektrum</div>
+      <div class="spectrum-hist" id="spectrumHist"></div>
+      <div class="spectrum-hist-labels" id="spectrumHistLabels"></div>
     </section>
 
     <section class="card">
@@ -108,6 +123,11 @@
       </select>
       <input type="text" id="situationInput" placeholder="Eigene Situation eingeben" hidden />
     </div>
+    <div class="note-row">
+      <label for="noteInput">Notiz <span class="optional">optional</span></label>
+      <textarea id="noteInput" maxlength="240" rows="2" placeholder="Was beschäftigt dich gerade?"></textarea>
+      <div class="note-counter"><span id="noteCount">0</span>/240</div>
+    </div>
     <div class="time-row">
       <label for="timeInput">Uhrzeit</label>
       <input type="time" id="timeInput" />
@@ -122,6 +142,10 @@
       <div class="entry-list" id="entryList"></div>
     </div>
   </div>
+
+  <button class="fab" id="quickCheckin" type="button" aria-label="Jetzt Check-in">
+    <span class="fab-icon">+</span>
+  </button>
 
 <script type="module" src="app.js"></script>
 </body>
