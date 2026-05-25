@@ -481,6 +481,13 @@
     font-size: 12px;
     color: var(--text-dim);
     transition: background .15s ease, color .15s ease;
+    position: relative;
+  }
+  /* Unsichtbare 44x44-Touch-Hitbox um den 22x22-Button (Apple/Android-Min) */
+  .section-title .info > summary::before {
+    content: "";
+    position: absolute;
+    inset: -11px;
   }
   .section-title .info > summary::-webkit-details-marker { display: none; }
   .section-title .info > summary:hover,
