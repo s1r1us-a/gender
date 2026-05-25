@@ -50,6 +50,19 @@ function valueToColor(v) {
   const b = Math.round(lerp(PINK[2], BLUE[2], t));
   return { r, g, b, hex: "#" + [r,g,b].map(x=>x.toString(16).padStart(2,"0")).join("") };
 }
+/* WCAG-relative-Luminanz – verlässlicher als einfache Helligkeitsmittel,
+   weil Grün viel stärker zur wahrgenommenen Helligkeit beiträgt als Blau. */
+function relLuminance({ r, g, b }) {
+  const toLin = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
+}
+/* Liefert dunkle/helle Textfarbe je nach Hintergrund-Luminanz. */
+function contrastText(c) {
+  return relLuminance(c) > 0.45 ? "#1a0f29" : "#fff";
+}
 function valueToSymbol(v) {
   if (v <= 25) return "♀";
   if (v <= 42) return "♀⚧";
@@ -350,7 +363,9 @@ slider.addEventListener("input", updateFeel);
 
 /* Notiz-Counter live aktualisieren */
 function updateNoteCount() {
-  noteCount.textContent = String((noteInput.value || "").length);
+  const len = (noteInput.value || "").length;
+  noteCount.textContent = String(len);
+  noteCount.parentElement.classList.toggle("near-limit", len >= 220);
 }
 noteInput.addEventListener("input", updateNoteCount);
 
@@ -409,7 +424,8 @@ function openSheet(dk) {
   sheetSubtitle.textContent = isToday ? "Wie fühlst du dich gerade?" : "Eintrag rückwirkend erfassen oder bearbeiten.";
   // default slider value: last entry of the day, else neutral
   const entries = DATA[dk] ? Object.entries(DATA[dk]).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)) : [];
-  const seed = entries.length ? Number(entries[entries.length-1][1].value) : 50;
+  const lastVal = entries.length ? Number(entries[entries.length-1][1].value) : NaN;
+  const seed = Number.isFinite(lastVal) ? lastVal : 50;
   setSliderToValue(seed);
   updateFeel();
   // default time: now for today, 12:00 otherwise
@@ -422,6 +438,8 @@ function openSheet(dk) {
   renderEntryList(dk);
   backdrop.classList.add("open");
   sheet.classList.add("open");
+  /* Slider ist die zentrale Aktion → bekommt sofort Fokus für Tastatur-Bedienung. */
+  requestAnimationFrame(() => { try { slider.focus(); } catch (_) {} });
 }
 function closeSheet() {
   backdrop.classList.remove("open");
@@ -429,6 +447,23 @@ function closeSheet() {
   selectedDayKey = null;
   editingEntryId = null;
 }
+
+/* A11y: Fokus innerhalb des offenen Sheets halten (Tab-Falle). */
+function focusableInSheet() {
+  return Array.from(sheet.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]):not([hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(el => el.offsetParent !== null);
+}
+document.addEventListener("keydown", (ev) => {
+  if (!sheet.classList.contains("open")) return;
+  if (ev.key === "Escape") { ev.preventDefault(); closeSheet(); return; }
+  if (ev.key !== "Tab") return;
+  const items = focusableInSheet();
+  if (!items.length) return;
+  const first = items[0], last = items[items.length-1];
+  if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+  else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+});
 backdrop.onclick = closeSheet;
 document.getElementById("cancelBtn").onclick = closeSheet;
 document.getElementById("nowBtn").onclick = () => {
@@ -471,9 +506,11 @@ function renderEntryList(dk) {
       editingEntryId = id;
       setSliderToValue(v);
       updateFeel();
-      if (e.ts) {
+      if (Number.isFinite(e.ts)) {
         const d = new Date(e.ts);
         timeInput.value = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      } else {
+        timeInput.value = "";
       }
       populateSituationOptions(sit);
       noteInput.value = note;
@@ -482,9 +519,7 @@ function renderEntryList(dk) {
     });
     row.querySelector(".del").addEventListener("click", (ev) => {
       ev.stopPropagation();
-      if (!confirm("Diesen Eintrag löschen?")) return;
-      deleteEntry(dk, id);
-      if (editingEntryId === id) editingEntryId = null;
+      requestDeleteWithUndo(dk, id);
     });
     entryList.appendChild(row);
   }
@@ -503,7 +538,7 @@ function saveEntry(dk, entryId, v, ts, situation, note) {
     const updatePayload = { value: v, ts };
     updatePayload.situation = situation || null;
     updatePayload.note = cleanNote || null;
-    // Lokal sofort anwenden (null = entfernen)
+    // Lokal sofort anwenden: leere Felder werden entfernt (Payload nutzt parallel null als Lösch-Signal)
     DATA[dk][entryId] = { ...DATA[dk][entryId], value: v, ts };
     if (situation) DATA[dk][entryId].situation = situation;
     else delete DATA[dk][entryId].situation;
@@ -557,12 +592,120 @@ function deleteEntry(dk, entryId) {
   flushPending();
 }
 
+/* ---------- Soft-Delete mit Undo ----------
+   Statt sofort zu löschen, blenden wir den Eintrag lokal aus und feuern
+   die echte delete-Operation erst nach Ablauf des Toast-Timers ab.
+   Bis dahin kann der User die Aktion rückgängig machen — ohne Server-Roundtrip. */
+const UNDO_MS = 5000;
+let pendingDeleteTimer = null;
+let pendingDeleteSnapshot = null;
+
+function requestDeleteWithUndo(dk, entryId) {
+  if (!DATA[dk] || !DATA[dk][entryId]) return;
+  // Falls noch ein anderes Soft-Delete läuft, dieses jetzt definitiv committen
+  finalizePendingDelete();
+
+  pendingDeleteSnapshot = { dk, entryId, entry: { ...DATA[dk][entryId] } };
+  // Lokal sofort ausblenden (kein Server-Call)
+  delete DATA[dk][entryId];
+  if (!Object.keys(DATA[dk]).length) delete DATA[dk];
+  if (editingEntryId === entryId) editingEntryId = null;
+  saveLocal(DATA);
+  renderAll();
+
+  showToast("Eintrag gelöscht", "Rückgängig", () => {
+    // Snapshot zurück ins DATA, Render
+    const s = pendingDeleteSnapshot;
+    pendingDeleteSnapshot = null;
+    clearTimeout(pendingDeleteTimer); pendingDeleteTimer = null;
+    if (!s) return;
+    if (!DATA[s.dk]) DATA[s.dk] = {};
+    DATA[s.dk][s.entryId] = s.entry;
+    saveLocal(DATA);
+    renderAll();
+  }, UNDO_MS, finalizePendingDelete);
+}
+
+function finalizePendingDelete() {
+  if (!pendingDeleteSnapshot) return;
+  const { dk, entryId } = pendingDeleteSnapshot;
+  pendingDeleteSnapshot = null;
+  clearTimeout(pendingDeleteTimer); pendingDeleteTimer = null;
+  // Jetzt echte Pending-Queue-Op erzeugen (analog zu deleteEntry, aber ohne erneutes Lokal-Mutieren)
+  if (entryId.startsWith("local-")) {
+    pendingQueue = pendingQueue.filter(q => !(q.op === "push" && q.tempId === entryId));
+  } else {
+    pendingQueue = pendingQueue.filter(q => !(q.op === "update" && q.entryId === entryId));
+    pendingQueue.push({ op: "delete", dk, entryId });
+  }
+  savePending();
+  updateStatus();
+  flushPending();
+}
+
+/* ---------- Toasts ---------- */
+function showToast(text, actionLabel, onAction, timeoutMs = 5000, onTimeout = null) {
+  const container = document.getElementById("toasts");
+  if (!container) { if (onTimeout) onTimeout(); return; }
+  // alte Toasts entfernen
+  while (container.firstChild) container.firstChild.remove();
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.setAttribute("role", "status");
+  t.setAttribute("aria-live", "polite");
+  t.innerHTML = `<span class="toast-text"></span>${onAction ? '<button class="toast-action" type="button"></button>' : ""}`;
+  t.querySelector(".toast-text").textContent = text;
+  let timer;
+  const dismiss = (callTimeout) => {
+    clearTimeout(timer);
+    t.classList.remove("show");
+    setTimeout(() => t.remove(), 220);
+    if (callTimeout && onTimeout) onTimeout();
+  };
+  if (onAction) {
+    const btn = t.querySelector(".toast-action");
+    btn.textContent = actionLabel;
+    btn.addEventListener("click", () => { onAction(); dismiss(false); });
+  }
+  container.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  timer = setTimeout(() => dismiss(true), timeoutMs);
+  pendingDeleteTimer = timer;
+}
+
+/* ---------- Datenexport ---------- */
+function exportData() {
+  // Snapshot inkl. lokaler Pending-Änderungen
+  const snap = {};
+  for (const dk in DATA) snap[dk] = { ...DATA[dk] };
+  const blob = new Blob([JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    version: 1,
+    checkins: snap
+  }, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `genderfluid-tracker-${dayKey(new Date())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const exportBtn = document.getElementById("exportBtn");
+if (exportBtn) exportBtn.addEventListener("click", exportData);
+
+/* Falls der User die Seite verlässt während ein Soft-Delete schwebt: jetzt committen */
+window.addEventListener("beforeunload", finalizePendingDelete);
+
 document.getElementById("saveBtn").onclick = () => {
   if (!selectedDayKey) return;
   const v = sliderValue();
-  const [hh, mm] = (timeInput.value || "12:00").split(":").map(Number);
+  const [rawHh, rawMm] = (timeInput.value || "12:00").split(":").map(Number);
+  const hh = Number.isFinite(rawHh) ? Math.max(0, Math.min(23, rawHh)) : 12;
+  const mm = Number.isFinite(rawMm) ? Math.max(0, Math.min(59, rawMm)) : 0;
   const d = parseDayKey(selectedDayKey);
-  d.setHours(hh||0, mm||0, 0, 0);
+  d.setHours(hh, mm, 0, 0);
   const ts = d.getTime();
   let situation = "";
   if (situationSelect.value === "__new__") {
@@ -869,8 +1012,7 @@ function renderBuckets(stats) {
         <div class="swatch-label">${label}</div>
         <div class="swatch-val">keine Daten</div></div>`;
     const c = valueToColor(v);
-    const dark = (c.r*299 + c.g*587 + c.b*114)/1000 > 150;
-    const txt = dark ? "#1a0f29" : "#fff";
+    const txt = contrastText(c);
     return `<div class="swatch" style="background:${c.hex};color:${txt}">
       <div class="swatch-label">${label}</div>
       <div class="swatch-val">Wert ${v.toFixed(1)} · ${valueToLabel(v)}</div>
@@ -936,7 +1078,9 @@ function renderHeatmap(stats) {
   // align start to Monday
   const offset = (start.getDay()+6)%7;
   start.setDate(start.getDate()-offset);
-  const total = Math.ceil((end - start)/(1000*60*60*24)) + 7;
+  // Tage zwischen ausgerichtetem Start (Mo) und heute, dann zur vollen Woche auffüllen
+  const days = Math.ceil((end - start)/(1000*60*60*24)) + 1;
+  const total = days + ((7 - (days % 7)) % 7);
   for (let i=0;i<total;i++) {
     const d = new Date(start); d.setDate(start.getDate()+i);
     const dk = dayKey(d);
@@ -947,7 +1091,9 @@ function renderHeatmap(stats) {
     if (v != null) {
       const c = valueToColor(v);
       cell.style.background = c.hex;
-      cell.title = `${dk} · ${v.toFixed(1)} · ${valueToLabel(v)}`;
+      const bWord = { f: "weiblich", n: "fluid", m: "männlich" }[bucket(v)];
+      cell.title = `${dk} · ${v.toFixed(1)} · ${valueToLabel(v)} (${bWord})`;
+      cell.setAttribute("aria-label", cell.title);
     } else {
       cell.title = dk;
     }
@@ -1014,7 +1160,8 @@ function renderStreaks(stats) {
   let prev = null;
   for (const o of ordered) {
     const d = parseDayKey(o.k);
-    const consecutive = prev && ((d - prev)/(1000*60*60*24) === 1);
+    // Math.round schützt gegen DST-Drift (Sommerzeitumstellung ±1 h)
+    const consecutive = prev && Math.round((d - prev)/(1000*60*60*24)) === 1;
     if (!consecutive) { curF=curM=curFL=0; }
     if (o.b==="f") { curF++; curM=0; curFL=0; } else
     if (o.b==="m") { curM++; curF=0; curFL=0; } else
@@ -1153,11 +1300,12 @@ function computeInsights(stats) {
   }
 
   // 2) Wochenende vs. Werktag (Ø der Tage, jeweils N >= 6)
+  // Montag-first wie im Rest der App: w=0 (Mo) … w=6 (So)
   const weVals = [], wdVals = [];
   for (const dk in dayAvgs) {
     const d = parseDayKey(dk);
-    const w = d.getDay();
-    (w === 0 || w === 6 ? weVals : wdVals).push(dayAvgs[dk]);
+    const w = (d.getDay() + 6) % 7;
+    (w >= 5 ? weVals : wdVals).push(dayAvgs[dk]);
   }
   if (weVals.length >= 6 && wdVals.length >= 6) {
     const we = avg(weVals), wd = avg(wdVals);
@@ -1228,7 +1376,7 @@ function computeInsights(stats) {
     for (let i = dayKeysSorted.length - 2; i >= 0; i--) {
       const k = dayKeysSorted[i];
       const d = parseDayKey(k);
-      if ((prev - d) / 86400000 !== 1) break;
+      if (Math.round((prev - d) / 86400000) !== 1) break;
       if (bucket(dayAvgs[k]) !== lastB) break;
       run++;
       prev = d;
@@ -1259,7 +1407,7 @@ function computeInsights(stats) {
     out.push({
       weight: 55,
       color: "#c79bd0",
-      text: `<b>${escapeHtml(top.name)}</b> ist deine konsistenteste Situation (σ ${top.sigma.toFixed(0)}).`
+      text: `<b>${escapeHtml(top.name)}</b> ist deine konsistenteste Situation (σ ${top.sigma.toFixed(1)}).`
     });
   }
 
@@ -1284,7 +1432,9 @@ function computeInsights(stats) {
       if (maxDay === null || v > dayAvgs[maxDay]) maxDay = dk;
     }
     const todayK = dayKey(new Date());
-    const daysAgo = (dk) => Math.round((parseDayKey(todayK) - parseDayKey(dk)) / 86400000);
+    // Floor + leichtes DST-Padding: bei Sommerzeit-Wechsel rutscht der Mitternachtsabstand
+    // um ±1 h; +0.5 h-Offset hält Math.floor stabil bei exakten Tageskanten.
+    const daysAgo = (dk) => Math.floor((parseDayKey(todayK) - parseDayKey(dk) + 1800000) / 86400000);
     for (const [dk, kind] of [[minDay, "weiblichster"], [maxDay, "männlichster"]]) {
       const ago = daysAgo(dk);
       if (ago <= 14) {
