@@ -57,6 +57,13 @@ function valueToSymbol(v) {
   if (v <= 75) return "⚧♂";
   return "♂";
 }
+/* Hero zeigt nur EIN dominantes Symbol – sonst kollidieren die
+   großen iOS-Emoji-Glyphen mit der Zahl daneben. */
+function valueToHeroSymbol(v) {
+  if (v <= 33) return "♀";
+  if (v <= 66) return "⚧";
+  return "♂";
+}
 function valueToLabel(v) {
   return SCALE[scaleIndexFromValue(v)].label;
 }
@@ -728,7 +735,7 @@ function renderHeroToday(stats) {
   }
   const v = agg.todayAvg;
   const c = valueToColor(v);
-  const sym = valueToSymbol(v);
+  const sym = valueToHeroSymbol(v);
   // Trend: Heute vs. Schnitt der vorherigen 6 Tage
   const yesterdayAvgs = [];
   for (let i = 1; i <= 6; i++) {
