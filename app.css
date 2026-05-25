@@ -488,6 +488,19 @@
   .section-title .info > summary:focus-visible { outline: 2px solid var(--flag-purple); outline-offset: 2px; }
   /* Inhalt absolut positionieren, damit Layout nicht springt */
   .section-title { position: relative; }
+  .section-title .info[open] > summary {
+    background: var(--flag-purple);
+    color: #fff;
+    border-color: var(--flag-purple);
+  }
+  .section-title .info[open] > summary::after {
+    content: "×";
+    position: absolute;
+    inset: 0;
+    display: grid; place-items: center;
+    font-size: 16px; font-weight: 700;
+  }
+  .section-title .info[open] > summary { position: relative; color: transparent; }
   .section-title .info[open] > p,
   .section-title .info > p {
     position: absolute;

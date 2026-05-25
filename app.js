@@ -1508,6 +1508,30 @@ document.getElementById("quickCheckin").addEventListener("click", () => {
   openSheet(dayKey(new Date()));
 });
 
+/* Info-Toggles (<details class="info">): Außenklick und Escape schließen,
+   neue Öffnung schließt parallel offene. */
+document.addEventListener("click", (ev) => {
+  const opened = document.querySelectorAll("details.info[open]");
+  if (!opened.length) return;
+  for (const d of opened) {
+    if (!d.contains(ev.target)) d.removeAttribute("open");
+  }
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  const opened = document.querySelectorAll("details.info[open]");
+  if (!opened.length) return;
+  for (const d of opened) d.removeAttribute("open");
+});
+document.addEventListener("toggle", (ev) => {
+  const t = ev.target;
+  if (!(t instanceof HTMLDetailsElement) || !t.classList.contains("info")) return;
+  if (!t.open) return;
+  for (const d of document.querySelectorAll("details.info[open]")) {
+    if (d !== t) d.removeAttribute("open");
+  }
+}, true);
+
 // First paint before data arrives
 updateFeel();
 renderAll();
