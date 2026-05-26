@@ -345,8 +345,10 @@ const sheetTitle = document.getElementById("sheetTitle");
 const sheetSubtitle = document.getElementById("sheetSubtitle");
 const entryList = document.getElementById("entryList");
 const entriesTitle = document.getElementById("entriesTitle");
-const situationSelect = document.getElementById("situationSelect");
-const situationInput = document.getElementById("situationInput");
+const ortSelect = document.getElementById("ortSelect");
+const ortInput = document.getElementById("ortInput");
+const befindenSelect = document.getElementById("befindenSelect");
+const befindenInput = document.getElementById("befindenInput");
 const sliderTicks = document.getElementById("sliderTicks");
 const noteInput = document.getElementById("noteInput");
 const noteCount = document.getElementById("noteCount");
@@ -382,51 +384,62 @@ function updateNoteCount() {
 }
 noteInput.addEventListener("input", updateNoteCount);
 
-/* Situation-Dropdown */
-function collectKnownSituations() {
+/* Tag-Dropdowns (Ort + Befinden) */
+function collectKnownTagValues(key) {
   const set = new Set();
   for (const dk in DATA) {
     for (const id in DATA[dk]) {
-      const s = (DATA[dk][id].situation || "").trim();
+      const e = DATA[dk][id];
+      // Ort liest legacy `situation` mit, damit bestehende Werte im Dropdown auftauchen.
+      const raw = key === "ort" ? (e.ort ?? e.situation) : e[key];
+      const s = (raw || "").trim();
       if (s) set.add(s);
     }
   }
   return Array.from(set).sort((a, b) => a.localeCompare(b, "de"));
 }
-function populateSituationOptions(selected) {
-  const known = collectKnownSituations();
-  const opts = ['<option value="">— keine —</option>'];
+function populateTagSelect(selectEl, inputEl, known, emptyLabel, newLabel, selected) {
+  const opts = [`<option value="">${emptyLabel}</option>`];
   for (const s of known) {
     const safe = s.replace(/"/g, "&quot;");
     opts.push(`<option value="${safe}">${safe}</option>`);
   }
-  opts.push('<option value="__new__">+ neue Situation…</option>');
-  situationSelect.innerHTML = opts.join("");
+  opts.push(`<option value="__new__">${newLabel}</option>`);
+  selectEl.innerHTML = opts.join("");
   if (selected && known.includes(selected)) {
-    situationSelect.value = selected;
+    selectEl.value = selected;
   } else if (selected) {
-    // selected exists in entry but not yet in derived list (just-deleted last usage etc.)
     const safe = selected.replace(/"/g, "&quot;");
-    situationSelect.insertAdjacentHTML(
+    selectEl.insertAdjacentHTML(
       "beforeend",
       `<option value="${safe}" selected>${safe}</option>`
     );
-    situationSelect.value = selected;
+    selectEl.value = selected;
   } else {
-    situationSelect.value = "";
+    selectEl.value = "";
   }
-  situationInput.hidden = true;
-  situationInput.value = "";
+  inputEl.hidden = true;
+  inputEl.value = "";
 }
-situationSelect.addEventListener("change", () => {
-  if (situationSelect.value === "__new__") {
-    situationInput.hidden = false;
-    situationInput.focus();
-  } else {
-    situationInput.hidden = true;
-    situationInput.value = "";
-  }
-});
+function populateOrtOptions(selected) {
+  populateTagSelect(ortSelect, ortInput, collectKnownTagValues("ort"), "— keiner —", "+ neuer Ort…", selected);
+}
+function populateBefindenOptions(selected) {
+  populateTagSelect(befindenSelect, befindenInput, collectKnownTagValues("befinden"), "— keins —", "+ neues Befinden…", selected);
+}
+function wireTagSelect(selectEl, inputEl) {
+  selectEl.addEventListener("change", () => {
+    if (selectEl.value === "__new__") {
+      inputEl.hidden = false;
+      inputEl.focus();
+    } else {
+      inputEl.hidden = true;
+      inputEl.value = "";
+    }
+  });
+}
+wireTagSelect(ortSelect, ortInput);
+wireTagSelect(befindenSelect, befindenInput);
 
 function openSheet(dk) {
   selectedDayKey = dk;
@@ -445,7 +458,8 @@ function openSheet(dk) {
   const now = new Date();
   if (isToday) timeInput.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   else timeInput.value = "12:00";
-  populateSituationOptions("");
+  populateOrtOptions("");
+  populateBefindenOptions("");
   noteInput.value = "";
   updateNoteCount();
   renderEntryList(dk);
@@ -499,17 +513,20 @@ function renderEntryList(dk) {
   for (const [id, e] of entries) {
     const v = Number(e.value);
     const c = valueToColor(v);
-    const sit = (e.situation || "").trim();
+    const ort = (e.ort ?? e.situation ?? "").trim();
+    const bef = (e.befinden || "").trim();
     const note = (e.note || "").trim();
-    const sitSafe = sit ? escapeHtml(sit) : "";
+    const ortSafe = ort ? escapeHtml(ort) : "";
+    const befSafe = bef ? escapeHtml(bef) : "";
     const noteSafe = note ? escapeHtml(note) : "";
+    const tagParts = [ortSafe, befSafe].filter(Boolean);
     const row = document.createElement("div");
     row.className = "entry" + (id === editingEntryId ? " active" : "");
     row.innerHTML = `
       <div class="dot" style="background:${c.hex}"></div>
       <div class="info">
         <div class="time">${e.ts ? fmtTime(e.ts) : "—"} · ${valueToLabel(v)}</div>
-        <div class="meta">Wert ${v}${sitSafe ? ` · ${sitSafe}` : ""}</div>
+        <div class="meta">Wert ${v}${tagParts.length ? ` · ${tagParts.join(" · ")}` : ""}</div>
         ${noteSafe ? `<div class="note-indicator" title="${noteSafe}">${noteSafe}</div>` : ""}
       </div>
       <button class="del" title="Löschen">✕</button>
@@ -525,7 +542,8 @@ function renderEntryList(dk) {
       } else {
         timeInput.value = "";
       }
-      populateSituationOptions(sit);
+      populateOrtOptions(ort);
+      populateBefindenOptions(bef);
       noteInput.value = note;
       updateNoteCount();
       renderEntryList(dk);
@@ -543,18 +561,27 @@ function genTempId() {
   return "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-function saveEntry(dk, entryId, v, ts, situation, note) {
+function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
   if (!DATA[dk]) DATA[dk] = {};
   const cleanNote = (note || "").trim();
   if (entryId) {
     // Bearbeiten
     const updatePayload = { value: v, ts };
-    updatePayload.situation = situation || null;
+    updatePayload.ort = ort || null;
+    updatePayload.befinden = befinden || null;
     updatePayload.note = cleanNote || null;
+    // Falls dieser Eintrag noch legacy `situation` hat, beim Update wegräumen,
+    // damit Ort eindeutig bleibt.
+    if (DATA[dk][entryId] && DATA[dk][entryId].situation !== undefined) {
+      updatePayload.situation = null;
+    }
     // Lokal sofort anwenden: leere Felder werden entfernt (Payload nutzt parallel null als Lösch-Signal)
     DATA[dk][entryId] = { ...DATA[dk][entryId], value: v, ts };
-    if (situation) DATA[dk][entryId].situation = situation;
-    else delete DATA[dk][entryId].situation;
+    delete DATA[dk][entryId].situation;
+    if (ort) DATA[dk][entryId].ort = ort;
+    else delete DATA[dk][entryId].ort;
+    if (befinden) DATA[dk][entryId].befinden = befinden;
+    else delete DATA[dk][entryId].befinden;
     if (cleanNote) DATA[dk][entryId].note = cleanNote;
     else delete DATA[dk][entryId].note;
 
@@ -563,7 +590,8 @@ function saveEntry(dk, entryId, v, ts, situation, note) {
       const p = pendingQueue.find(q => q.op === "push" && q.tempId === entryId);
       if (p) {
         p.payload = { value: v, ts };
-        if (situation) p.payload.situation = situation;
+        if (ort) p.payload.ort = ort;
+        if (befinden) p.payload.befinden = befinden;
         if (cleanNote) p.payload.note = cleanNote;
       }
     } else {
@@ -573,7 +601,8 @@ function saveEntry(dk, entryId, v, ts, situation, note) {
     // Neu anlegen
     const tempId = genTempId();
     const payload = { value: v, ts };
-    if (situation) payload.situation = situation;
+    if (ort) payload.ort = ort;
+    if (befinden) payload.befinden = befinden;
     if (cleanNote) payload.note = cleanNote;
     DATA[dk][tempId] = payload;
     pendingQueue.push({ op: "push", tempId, dk, payload });
@@ -720,14 +749,12 @@ document.getElementById("saveBtn").onclick = () => {
   const d = parseDayKey(selectedDayKey);
   d.setHours(hh, mm, 0, 0);
   const ts = d.getTime();
-  let situation = "";
-  if (situationSelect.value === "__new__") {
-    situation = situationInput.value.trim();
-  } else {
-    situation = situationSelect.value.trim();
-  }
+  const readTag = (selectEl, inputEl) =>
+    selectEl.value === "__new__" ? inputEl.value.trim() : selectEl.value.trim();
+  const ort = readTag(ortSelect, ortInput);
+  const befinden = readTag(befindenSelect, befindenInput);
   const note = (noteInput.value || "").trim();
-  saveEntry(selectedDayKey, editingEntryId, v, ts, situation, note);
+  saveEntry(selectedDayKey, editingEntryId, v, ts, ort, befinden, note);
   closeSheet();
 };
 
@@ -735,8 +762,15 @@ document.getElementById("saveBtn").onclick = () => {
 function computeStats() {
   const dayKeys = Object.keys(DATA).sort();
   const dayAvgs = {};      // dk -> avg
-  const allEntries = [];   // {dk, value, ts, situation}
-  const bySituation = {};  // name -> { sum, count, values: [] }
+  const allEntries = [];   // {dk, value, ts, ort, befinden}
+  const byOrt = {};        // name -> { sum, count }
+  const byBefinden = {};   // name -> { sum, count }
+  const addTo = (bucketMap, name, v) => {
+    if (!name) return;
+    if (!bucketMap[name]) bucketMap[name] = { sum: 0, count: 0 };
+    bucketMap[name].sum += v;
+    bucketMap[name].count += 1;
+  };
   for (const dk of dayKeys) {
     const vals = [];
     for (const id in DATA[dk]) {
@@ -744,17 +778,16 @@ function computeStats() {
       const v = Number(e.value);
       if (isNaN(v)) continue;
       vals.push(v);
-      const sit = (e.situation || "").trim();
-      allEntries.push({ dk, id, value: v, ts: e.ts, situation: sit });
-      if (sit) {
-        if (!bySituation[sit]) bySituation[sit] = { sum: 0, count: 0 };
-        bySituation[sit].sum += v;
-        bySituation[sit].count += 1;
-      }
+      // Ort liest legacy `situation` mit, solange alte Einträge nicht migriert sind.
+      const ort = (e.ort ?? e.situation ?? "").trim();
+      const befinden = (e.befinden || "").trim();
+      allEntries.push({ dk, id, value: v, ts: e.ts, ort, befinden });
+      addTo(byOrt, ort, v);
+      addTo(byBefinden, befinden, v);
     }
     if (vals.length) dayAvgs[dk] = avg(vals);
   }
-  return { dayAvgs, allEntries, bySituation, dayKeys: Object.keys(dayAvgs).sort() };
+  return { dayAvgs, allEntries, byOrt, byBefinden, dayKeys: Object.keys(dayAvgs).sort() };
 }
 
 /* Zeitliche Aggregate für Heute/Woche/Monat/Spektrum bündeln */
@@ -1254,14 +1287,15 @@ function escapeHtml(s) {
   }[ch]));
 }
 
-function renderSituationStats(stats) {
-  const container = document.getElementById("situationStats");
-  const entries = Object.entries(stats.bySituation)
+function renderTagStats(containerId, byTag, emptyText) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const entries = Object.entries(byTag)
     .map(([name, agg]) => ({ name, avg: agg.sum / agg.count, count: agg.count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "de"));
 
   if (!entries.length) {
-    container.innerHTML = `<div class="sit-empty">Noch keine Situationen erfasst — füge im Check-in eine hinzu.</div>`;
+    container.innerHTML = `<div class="sit-empty">${emptyText}</div>`;
     return;
   }
 
@@ -1295,22 +1329,32 @@ function computeInsights(stats) {
   // Hilfsfunktion: zentrale Diff-Formulierung mit Richtung
   const dirWord = (diff) => diff > 0 ? "männlicher" : "weiblicher";
 
-  // 1) Situations-Extremes (high vs low Ø, beide N >= 5)
-  const sitEntries = Object.entries(stats.bySituation)
-    .map(([name, agg]) => ({ name, avg: agg.sum / agg.count, count: agg.count }))
-    .filter(e => e.count >= 5);
-  if (sitEntries.length >= 2) {
-    const sorted = [...sitEntries].sort((a, b) => a.avg - b.avg);
+  // 1) Tag-Extremes pro Dimension (high vs low Ø, beide N >= 5)
+  const tagExtreme = (byTag, phrase, weightBase) => {
+    const tagEntries = Object.entries(byTag)
+      .map(([name, agg]) => ({ name, avg: agg.sum / agg.count, count: agg.count }))
+      .filter(e => e.count >= 5);
+    if (tagEntries.length < 2) return;
+    const sorted = [...tagEntries].sort((a, b) => a.avg - b.avg);
     const lo = sorted[0], hi = sorted[sorted.length - 1];
     const diff = hi.avg - lo.avg;
-    if (diff >= 5) {
-      out.push({
-        weight: 90 + Math.min(20, diff),
-        color: valueToColor((lo.avg + hi.avg) / 2).hex,
-        text: `Bei <b>${escapeHtml(hi.name)}</b> fühlst du dich Ø <b>${diff.toFixed(0)} Punkte männlicher</b> als bei <b>${escapeHtml(lo.name)}</b>.`
-      });
-    }
-  }
+    if (diff < 5) return;
+    out.push({
+      weight: weightBase + Math.min(20, diff),
+      color: valueToColor((lo.avg + hi.avg) / 2).hex,
+      text: phrase(escapeHtml(hi.name), escapeHtml(lo.name), diff.toFixed(0))
+    });
+  };
+  tagExtreme(
+    stats.byOrt,
+    (hi, lo, d) => `Bei <b>${hi}</b> fühlst du dich Ø <b>${d} Punkte männlicher</b> als bei <b>${lo}</b>.`,
+    90
+  );
+  tagExtreme(
+    stats.byBefinden,
+    (hi, lo, d) => `Wenn du dich <b>${hi}</b> fühlst, bist du Ø <b>${d} Punkte männlicher</b> als bei <b>${lo}</b>.`,
+    88
+  );
 
   // 2) Wochenende vs. Werktag (Ø der Tage, jeweils N >= 6)
   // Montag-first wie im Rest der App: w=0 (Mo) … w=6 (So)
@@ -1405,24 +1449,29 @@ function computeInsights(stats) {
     }
   }
 
-  // 6) Konsistenteste Situation (niedrigstes σ, N >= 5)
-  const sitWithSigma = Object.entries(stats.bySituation)
-    .filter(([, agg]) => agg.count >= 5)
-    .map(([name, agg]) => {
-      // Sigma aus allEntries für diese Situation berechnen
-      const vals = stats.allEntries.filter(e => e.situation === name).map(e => e.value);
-      return { name, sigma: stddev(vals), count: agg.count };
-    })
-    .filter(s => s.sigma > 0)
-    .sort((a, b) => a.sigma - b.sigma);
-  if (sitWithSigma.length >= 2 && sitWithSigma[0].sigma < sitWithSigma[1].sigma * 0.75) {
-    const top = sitWithSigma[0];
-    out.push({
-      weight: 55,
-      color: "#c79bd0",
-      text: `<b>${escapeHtml(top.name)}</b> ist deine konsistenteste Situation (σ ${top.sigma.toFixed(1)}).`
-    });
-  }
+  // 6) Konsistenteste Werte pro Tag-Dimension (niedrigstes σ, N >= 5)
+  const consistentTag = (byTag, tagKey, phrase) => {
+    const withSigma = Object.entries(byTag)
+      .filter(([, agg]) => agg.count >= 5)
+      .map(([name, agg]) => {
+        const vals = stats.allEntries.filter(e => e[tagKey] === name).map(e => e.value);
+        return { name, sigma: stddev(vals), count: agg.count };
+      })
+      .filter(s => s.sigma > 0)
+      .sort((a, b) => a.sigma - b.sigma);
+    if (withSigma.length >= 2 && withSigma[0].sigma < withSigma[1].sigma * 0.75) {
+      const top = withSigma[0];
+      out.push({
+        weight: 55,
+        color: "#c79bd0",
+        text: phrase(escapeHtml(top.name), top.sigma.toFixed(1))
+      });
+    }
+  };
+  consistentTag(stats.byOrt, "ort",
+    (name, sd) => `<b>${name}</b> ist dein konsistentester Ort (σ ${sd}).`);
+  consistentTag(stats.byBefinden, "befinden",
+    (name, sd) => `Wenn du dich <b>${name}</b> fühlst, bist du am konsistentesten (σ ${sd}).`);
 
   // 7) Schwankungs-Woche (σ der letzten 7 Tage deutlich höher als 30-Tage-σ)
   if (last7.length >= 4 && last30.length >= 10) {
@@ -1468,7 +1517,7 @@ function renderInsights(stats) {
   const container = document.getElementById("insights");
   const insights = computeInsights(stats);
   if (!insights.length) {
-    container.innerHTML = `<li class="insight insight-empty">Noch zu wenig Daten für Muster. Trag ein paar Tage mit Situationen ein — dann tauchen hier Beobachtungen auf.</li>`;
+    container.innerHTML = `<li class="insight insight-empty">Noch zu wenig Daten für Muster. Trag ein paar Tage mit Ort und Befinden ein — dann tauchen hier Beobachtungen auf.</li>`;
     return;
   }
   const top = insights.slice(0, 6);
@@ -1509,10 +1558,16 @@ function renderAll() {
   renderHeatmap(stats);
   renderHistogram(stats);
   renderWeekdays(stats);
-  renderSituationStats(stats);
+  renderTagStats("ortStats", stats.byOrt, "Noch keine Orte erfasst — füge im Check-in einen hinzu.");
+  renderTagStats("befindenStats", stats.byBefinden, "Noch kein Befinden erfasst — füge im Check-in eins hinzu.");
   renderInsights(stats);
   renderStreaks(stats);
-  if (sheet.classList.contains("open")) populateSituationOptions(situationSelect.value && situationSelect.value !== "__new__" ? situationSelect.value : "");
+  if (sheet.classList.contains("open")) {
+    const keepOrt = ortSelect.value && ortSelect.value !== "__new__" ? ortSelect.value : "";
+    const keepBef = befindenSelect.value && befindenSelect.value !== "__new__" ? befindenSelect.value : "";
+    populateOrtOptions(keepOrt);
+    populateBefindenOptions(keepBef);
+  }
   if (selectedDayKey) renderEntryList(selectedDayKey);
 }
 

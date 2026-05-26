@@ -109,12 +109,14 @@
     </section>
 
     <section class="card">
-      <div class="section-title">Wie fühlst du dich in welcher Situation?
-        <details class="info"><summary aria-label="Infos zur Situations-Statistik">ⓘ</summary>
-          <p>Mit wem du zusammen bist, wo du bist und welche Rolle du gerade ausfüllst, kann dein Gender-Empfinden mehr prägen als der „eigentliche Tag". Deine <strong>Situations-Tags</strong> machen diese Verbindungen sichtbar — je öfter du taggst, desto klarer werden die Muster. Wenige Check-ins pro Situation bedeuten: vorsichtig interpretieren.</p>
+      <div class="section-title">Wie fühlst du dich an welchem Ort?
+        <details class="info"><summary aria-label="Infos zur Ort- und Befinden-Statistik">ⓘ</summary>
+          <p>Wo du bist und wie es dir gerade geht, kann dein Gender-Empfinden mehr prägen als der „eigentliche Tag". Deine <strong>Ort-</strong> und <strong>Befinden-Tags</strong> machen diese Verbindungen sichtbar — je öfter du taggst, desto klarer werden die Muster. Wenige Check-ins pro Tag bedeuten: vorsichtig interpretieren.</p>
         </details>
       </div>
-      <div class="situation-stats" id="situationStats"></div>
+      <div class="situation-stats" id="ortStats"></div>
+      <div class="section-title" style="margin-top:18px">Wie fühlst du dich in welchem Befinden?</div>
+      <div class="situation-stats" id="befindenStats"></div>
     </section>
 
     <section class="card">
@@ -143,12 +145,20 @@
       <div class="slider-ticks" id="sliderTicks"></div>
     </div>
     <div class="situation-row">
-      <label for="situationSelect">Situation</label>
-      <select id="situationSelect">
-        <option value="">— keine —</option>
-        <option value="__new__">+ neue Situation…</option>
+      <label for="ortSelect">Ort</label>
+      <select id="ortSelect">
+        <option value="">— keiner —</option>
+        <option value="__new__">+ neuer Ort…</option>
       </select>
-      <input type="text" id="situationInput" placeholder="Eigene Situation eingeben" hidden />
+      <input type="text" id="ortInput" placeholder="Eigenen Ort eingeben" hidden />
+    </div>
+    <div class="situation-row befinden-row">
+      <label for="befindenSelect">Befinden</label>
+      <select id="befindenSelect">
+        <option value="">— keins —</option>
+        <option value="__new__">+ neues Befinden…</option>
+      </select>
+      <input type="text" id="befindenInput" placeholder="Eigenes Befinden eingeben" hidden />
     </div>
     <div class="note-row">
       <label for="noteInput">Notiz <span class="optional">optional</span></label>
