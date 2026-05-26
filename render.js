@@ -180,6 +180,8 @@ function renderOverviewMeta(stats) {
 function renderHeroToday(stats) {
   const inner = document.getElementById("heroInner");
   const agg = computePeriodAggregates(stats);
+  const todayDk = dayKey(new Date());
+  const todayCount = state.data[todayDk] ? Object.keys(state.data[todayDk]).length : 0;
   if (agg.todayAvg == null) {
     inner.innerHTML = `
       <div class="hero-empty">
@@ -224,7 +226,8 @@ function renderHeroToday(stats) {
       ${trendHtml}
     </div>
     <div class="hero-cta">
-      <button class="btn-checkin" id="heroCheckinBtn" type="button">+ Check-in</button>
+      <button class="btn-checkin" id="heroCheckinBtn" type="button">+ Weiterer Check-in</button>
+      <div class="hero-count-hint">${todayCount} Eintrag${todayCount === 1 ? "" : "e"} heute · jeder Tap legt einen neuen an</div>
     </div>
   `;
   const btn = document.getElementById("heroCheckinBtn");
