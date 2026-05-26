@@ -508,8 +508,125 @@ export function initUi() {
   /* Volltext-Suche (#40) */
   initSearch();
 
+  /* Onboarding (#29) */
+  initOnboarding();
+
   // First paint des Slider-Feel-Anzeige (vor erstem Daten-Render).
   updateFeel();
+}
+
+/* ---------- Onboarding (#29) ---------- */
+const ONBOARDING_LS_KEY = "tracker.onboarding.v1.seen";
+const ONBOARDING_SLIDES = [
+  {
+    title: "So liest du die Skala",
+    illu: `
+      <div class="ob-scale" aria-hidden="true">
+        <span class="pole left">♀</span>
+        <span class="pole mid">⚧</span>
+        <span class="pole right">♂</span>
+      </div>`,
+    body: `Nicht Schubladen, sondern ein <b>fließendes Spektrum</b> von 0 bis 100. Dein Wert kann jederzeit überall liegen — links, rechts, in der Mitte oder dazwischen. Die App misst keine "Wahrheit", sondern was du gerade <b>fühlst</b>.`
+  },
+  {
+    title: "So checkst du ein",
+    illu: `
+      <div class="ob-mock" aria-hidden="true">
+        <div class="ob-mock-row"><span class="num">1</span><span>Tippe das <b>+</b> unten rechts</span></div>
+        <div class="ob-mock-row"><span class="num">2</span><span>Schiebe den <b>Slider</b> auf dein Gefühl</span></div>
+        <div class="ob-mock-row"><span class="num">3</span><span>Optional: <b>Ort</b>, <b>Befinden</b>, <b>Notiz</b></span></div>
+        <div class="ob-mock-row"><span class="num">4</span><span><b>Speichern</b> — fertig in 5 Sekunden</span></div>
+      </div>`,
+    body: `Lieber <b>mehrmals kurz</b> einchecken als einmal lang — so erfasst du auch Schwankungen im Tagesverlauf. Du kannst Einträge jederzeit bearbeiten oder löschen.`
+  },
+  {
+    title: "Was die Stats können — und was nicht",
+    illu: `<div style="font-size:48px; line-height:1; margin-top:8px">📊</div>`,
+    body: `Muster brauchen Daten. Verlass dich auf die Statistiken erst, wenn du mehrere Wochen erfasst hast. Bei wenigen Check-ins markieren wir die Werte als <b>wackelig</b>. Jede Karte hat ein <span class="ob-info-chip">ⓘ</span> — tippe darauf, um zu verstehen, was die jeweilige Auswertung wirklich misst.`
+  }
+];
+
+let obIndex = 0;
+let obOverlay, obSlide, obBack, obNext, obDots, obClose;
+let _onboardingArmed = false;
+
+function obRender() {
+  const total = ONBOARDING_SLIDES.length;
+  const slide = ONBOARDING_SLIDES[obIndex];
+  obSlide.innerHTML = `
+    <div class="ob-step">Schritt ${obIndex + 1} / ${total}</div>
+    <h2 class="ob-title">${escapeHtml(slide.title)}</h2>
+    <div class="ob-illu">${slide.illu}</div>
+    <div class="ob-body">${slide.body}</div>
+  `;
+  obBack.disabled = obIndex === 0;
+  obNext.textContent = obIndex === total - 1 ? "Verstanden" : "Weiter";
+  obDots.innerHTML = ONBOARDING_SLIDES.map((_, i) =>
+    `<span class="d${i === obIndex ? " active" : ""}"></span>`
+  ).join("");
+}
+
+function obOpen(fromManual = false) {
+  obIndex = 0;
+  obOverlay.hidden = false;
+  obRender();
+  document.body.style.overflow = "hidden";
+  requestAnimationFrame(() => obNext.focus());
+  if (!fromManual) {
+    // Auto-Open zählt sofort als "gesehen", damit es nicht beim nächsten
+    // Refresh wieder erscheint.
+    try { localStorage.setItem(ONBOARDING_LS_KEY, "1"); } catch {}
+  }
+}
+
+function obCloseDialog() {
+  obOverlay.hidden = true;
+  document.body.style.overflow = "";
+  try { localStorage.setItem(ONBOARDING_LS_KEY, "1"); } catch {}
+}
+
+function initOnboarding() {
+  obOverlay = document.getElementById("onboardingOverlay");
+  obSlide   = document.getElementById("onboardingSlide");
+  obBack    = document.getElementById("onboardingBack");
+  obNext    = document.getElementById("onboardingNext");
+  obDots    = document.getElementById("onboardingDots");
+  obClose   = document.getElementById("onboardingClose");
+  const helpBtn = document.getElementById("helpBtn");
+  if (!obOverlay || !obSlide) return;
+
+  obBack.addEventListener("click", () => {
+    if (obIndex > 0) { obIndex--; obRender(); }
+  });
+  obNext.addEventListener("click", () => {
+    if (obIndex < ONBOARDING_SLIDES.length - 1) { obIndex++; obRender(); }
+    else { obCloseDialog(); }
+  });
+  obClose.addEventListener("click", obCloseDialog);
+  if (helpBtn) helpBtn.addEventListener("click", () => obOpen(true));
+
+  document.addEventListener("keydown", (ev) => {
+    if (obOverlay.hidden) return;
+    if (ev.key === "Escape") { ev.preventDefault(); obCloseDialog(); }
+    else if (ev.key === "ArrowRight") { obNext.click(); }
+    else if (ev.key === "ArrowLeft")  { obBack.click(); }
+  });
+  _onboardingArmed = true;
+}
+
+/* Wird aus auth.js gerufen, sobald der User eingeloggt und das
+   Login-Gate weg ist. Zeigt das Onboarding einmalig (Flag in
+   localStorage). */
+export function maybeShowOnboarding() {
+  if (!_onboardingArmed) return;
+  try {
+    if (localStorage.getItem(ONBOARDING_LS_KEY) === "1") return;
+  } catch { return; }
+  // Kleiner Delay, damit die App "ankommt", bevor wir overlay aufmachen.
+  setTimeout(() => {
+    if (!obOverlay.hidden) return;
+    obOpen(false);
+  }, 600);
 }
 
 /* ---------- Volltext-Suche (#40) ---------- */

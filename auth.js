@@ -10,6 +10,7 @@ import { auth, db } from "./firebase.js";
 import { ref, get, set, serverTimestamp } from "./sync.js";
 import { state, notify } from "./state.js";
 import { flushPending } from "./sync.js";
+import { maybeShowOnboarding } from "./ui.js";
 
 /* ---------- Auth / Rollen ---------- */
 const ADMIN_EMAIL  = "raederich@outlook.com";
@@ -182,6 +183,7 @@ export function initAuth() {
       showChangePwView();
     } else {
       hideLoginGate();
+      maybeShowOnboarding();
     }
     // Falls vor dem Login Pending-Ops anstanden, jetzt sync versuchen.
     if (role === "admin") flushPending();

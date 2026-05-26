@@ -1094,6 +1094,142 @@
   body.viewer-mode .cell { cursor: default; }
 
   /* ============================================================
+     Onboarding (#29): 3-Slide-Modal, auto beim ersten Login,
+     manuell per ?-Button im Header.
+     ============================================================ */
+  .onboarding-overlay {
+    position: fixed; inset: 0; z-index: 250;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(circle at 20% 10%, rgba(255,111,181,0.20), transparent 55%),
+      radial-gradient(circle at 80% 90%, rgba(111,181,255,0.20), transparent 55%),
+      rgba(18, 10, 28, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    animation: ob-in 0.22s ease;
+  }
+  .onboarding-overlay[hidden] { display: none; }
+  @keyframes ob-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  .onboarding-card {
+    width: 100%; max-width: 480px;
+    background: var(--card-strong);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 28px 24px 18px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    position: relative;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .onboarding-close {
+    position: absolute; top: 12px; right: 12px;
+    background: transparent; border: none; color: var(--text-dim);
+    width: 36px; height: 36px; border-radius: 10px;
+    font-size: 16px; cursor: pointer;
+  }
+  .onboarding-close:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .onboarding-slide {
+    text-align: center;
+    padding: 12px 4px 8px;
+    animation: ob-slide-in .22s ease;
+  }
+  @keyframes ob-slide-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .ob-step {
+    font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+  .ob-title {
+    font-size: clamp(20px, 2.5vw + 14px, 26px);
+    font-weight: 800; line-height: 1.2;
+    margin: 0 0 16px;
+    background: linear-gradient(135deg, var(--pink), #e7a8de, var(--blue));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .ob-body {
+    font-size: 15px; line-height: 1.5;
+    color: var(--text-dim);
+    max-width: 380px;
+    margin: 0 auto;
+  }
+  .ob-body b { color: var(--text); font-weight: 600; }
+  .ob-illu {
+    margin: 18px auto 22px;
+    display: flex; justify-content: center;
+  }
+  .ob-scale {
+    width: 100%; max-width: 320px;
+    height: 18px; border-radius: 9px;
+    background: linear-gradient(90deg, var(--pink) 0%, var(--neutral) 50%, var(--blue) 100%);
+    position: relative;
+    box-shadow: 0 4px 14px rgba(190, 24, 214, 0.30);
+  }
+  .ob-scale .pole {
+    position: absolute; top: 22px;
+    font-size: 18px;
+    transform: translateX(-50%);
+  }
+  .ob-scale .pole.left  { left: 0%; }
+  .ob-scale .pole.mid   { left: 50%; }
+  .ob-scale .pole.right { left: 100%; }
+  .ob-mock {
+    display: flex; flex-direction: column; gap: 10px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    max-width: 320px;
+    margin: 18px auto 22px;
+    text-align: left;
+  }
+  .ob-mock-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--text);
+  }
+  .ob-mock-row .num {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--flag-purple); color: #fff;
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 12px;
+    flex-shrink: 0;
+  }
+  .ob-info-chip {
+    display: inline-block;
+    background: rgba(190, 24, 214, 0.18);
+    border: 1px solid rgba(190, 24, 214, 0.40);
+    color: var(--text);
+    padding: 6px 12px; border-radius: 999px;
+    font-size: 13px; font-weight: 600;
+    margin-top: 12px;
+  }
+  .onboarding-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-top: 14px;
+  }
+  .onboarding-dots {
+    display: flex; gap: 6px;
+  }
+  .onboarding-dots .d {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(255,255,255,0.20);
+    transition: background .15s, transform .15s;
+  }
+  .onboarding-dots .d.active {
+    background: var(--flag-purple);
+    transform: scale(1.3);
+  }
+  .onboarding-nav .btn[disabled] {
+    opacity: 0.35; cursor: default; pointer-events: none;
+  }
+
+  /* ============================================================
      Rückblick (#9): Fullscreen-Story-Modal mit Swipe-Cards.
      ============================================================ */
   .review-cta {

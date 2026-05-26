@@ -50,6 +50,7 @@
       <div class="header-tools">
         <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
         <button class="header-btn" id="searchBtn" type="button" title="In Notizen suchen" aria-label="Suche öffnen">🔍</button>
+        <button class="header-btn" id="helpBtn" type="button" title="Einführung" aria-label="Einführung öffnen">?</button>
         <button class="header-btn" id="exportBtn" type="button" title="Daten als JSON exportieren" aria-label="Daten als JSON exportieren">⤓</button>
         <span class="user-badge" id="userBadge" hidden></span>
         <button class="header-btn" id="logoutBtn" type="button" title="Abmelden" aria-label="Abmelden" hidden>⎋</button>
@@ -206,6 +207,18 @@
       </div>
       <button class="btn btn-primary" id="openReviewBtn" type="button">📖 Öffnen</button>
     </section>
+  </div>
+
+  <div class="onboarding-overlay" id="onboardingOverlay" hidden role="dialog" aria-modal="true" aria-label="Einführung">
+    <div class="onboarding-card">
+      <button class="onboarding-close" id="onboardingClose" type="button" aria-label="Schließen">✕</button>
+      <div class="onboarding-slide" id="onboardingSlide"></div>
+      <div class="onboarding-nav">
+        <button class="btn btn-ghost" id="onboardingBack" type="button">Zurück</button>
+        <div class="onboarding-dots" id="onboardingDots" aria-hidden="true"></div>
+        <button class="btn btn-primary" id="onboardingNext" type="button">Weiter</button>
+      </div>
+    </div>
   </div>
 
   <div class="review-overlay" id="reviewOverlay" hidden role="dialog" aria-modal="true" aria-label="Rückblick">
