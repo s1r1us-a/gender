@@ -174,8 +174,9 @@ function applyPending(data) {
       if (!data[p.dk]) data[p.dk] = {};
       data[p.dk][p.tempId] = p.payload;
     } else if (p.op === "update") {
-      if (!data[p.dk]) data[p.dk] = {};
-      data[p.dk][p.entryId] = { ...(data[p.dk][p.entryId] || {}), ...p.payload };
+      // Server-seitig schon gelöschte Einträge nicht aus Pending-Payload "wiederbeleben".
+      if (!data[p.dk] || !data[p.dk][p.entryId]) continue;
+      data[p.dk][p.entryId] = { ...data[p.dk][p.entryId], ...p.payload };
       // null-Felder bedeuten Löschung
       for (const k in p.payload) if (p.payload[k] === null) delete data[p.dk][p.entryId][k];
     } else if (p.op === "delete") {
@@ -399,21 +400,24 @@ function collectKnownTagValues(key) {
   return Array.from(set).sort((a, b) => a.localeCompare(b, "de"));
 }
 function populateTagSelect(selectEl, inputEl, known, emptyLabel, newLabel, selected) {
-  const opts = [`<option value="">${emptyLabel}</option>`];
-  for (const s of known) {
-    const safe = s.replace(/"/g, "&quot;");
-    opts.push(`<option value="${safe}">${safe}</option>`);
-  }
-  opts.push(`<option value="__new__">${newLabel}</option>`);
-  selectEl.innerHTML = opts.join("");
+  // Optionen via DOM-API erzeugen statt innerHTML — vermeidet jegliche
+  // HTML-Injection durch Tag-Namen (z.B. "</option><script>").
+  selectEl.replaceChildren();
+  const makeOpt = (value, label) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    return o;
+  };
+  selectEl.append(makeOpt("", emptyLabel));
+  for (const s of known) selectEl.append(makeOpt(s, s));
+  selectEl.append(makeOpt("__new__", newLabel));
   if (selected && known.includes(selected)) {
     selectEl.value = selected;
   } else if (selected) {
-    const safe = selected.replace(/"/g, "&quot;");
-    selectEl.insertAdjacentHTML(
-      "beforeend",
-      `<option value="${safe}" selected>${safe}</option>`
-    );
+    const o = makeOpt(selected, selected);
+    o.selected = true;
+    selectEl.append(o);
     selectEl.value = selected;
   } else {
     selectEl.value = "";
@@ -655,17 +659,17 @@ function requestDeleteWithUndo(dk, entryId) {
   saveLocal(DATA);
   renderAll();
 
-  showToast("Eintrag gelöscht", "Rückgängig", () => {
+  pendingDeleteTimer = showToast("Eintrag gelöscht", "Rückgängig", () => {
     // Snapshot zurück ins DATA, Render
     const s = pendingDeleteSnapshot;
     pendingDeleteSnapshot = null;
-    clearTimeout(pendingDeleteTimer); pendingDeleteTimer = null;
+    pendingDeleteTimer = null;
     if (!s) return;
     if (!DATA[s.dk]) DATA[s.dk] = {};
     DATA[s.dk][s.entryId] = s.entry;
     saveLocal(DATA);
     renderAll();
-  }, UNDO_MS, finalizePendingDelete);
+  }, UNDO_MS, finalizePendingDelete, { important: true });
 }
 
 function finalizePendingDelete() {
@@ -685,10 +689,21 @@ function finalizePendingDelete() {
   flushPending();
 }
 
-/* ---------- Toasts ---------- */
-function showToast(text, actionLabel, onAction, timeoutMs = 5000, onTimeout = null) {
+/* ---------- Toasts ----------
+   Wichtige Toasts (z.B. Undo) dürfen nicht von beiläufigen Sync-Toasts
+   zerstört werden. Vor jedem neuen Toast wird ein evtl. schwebender
+   Soft-Delete sofort committet, damit der Snapshot nicht in einem
+   inkonsistenten Zustand verloren geht. Der Timer wird zurückgegeben, statt
+   eine globale Variable zu beschreiben — sonst überschreibt jeder Toast
+   die Timer-Referenz des Undo-Flows. */
+function showToast(text, actionLabel, onAction, timeoutMs = 5000, onTimeout = null, opts = {}) {
   const container = document.getElementById("toasts");
-  if (!container) { if (onTimeout) onTimeout(); return; }
+  if (!container) { if (onTimeout) onTimeout(); return null; }
+  // Falls ein anderer wichtiger Toast (Undo) aktiv ist: dessen Aktion final
+  // committen, damit kein "stiller" Verlust passiert.
+  if (!opts.important && pendingDeleteSnapshot) {
+    finalizePendingDelete();
+  }
   // alte Toasts entfernen
   while (container.firstChild) container.firstChild.remove();
   const t = document.createElement("div");
@@ -712,7 +727,7 @@ function showToast(text, actionLabel, onAction, timeoutMs = 5000, onTimeout = nu
   container.appendChild(t);
   requestAnimationFrame(() => t.classList.add("show"));
   timer = setTimeout(() => dismiss(true), timeoutMs);
-  pendingDeleteTimer = timer;
+  return timer;
 }
 
 /* ---------- Datenexport ---------- */
@@ -762,9 +777,15 @@ document.getElementById("saveBtn").onclick = () => {
 function computeStats() {
   const dayKeys = Object.keys(DATA).sort();
   const dayAvgs = {};      // dk -> avg
+  const dayCounts = {};    // dk -> Einträge an dem Tag
+  const daySwings = {};    // dk -> max - min innerhalb des Tages (nur N >= 2)
   const allEntries = [];   // {dk, value, ts, ort, befinden}
   const byOrt = {};        // name -> { sum, count }
   const byBefinden = {};   // name -> { sum, count }
+  /* Kombinations-Matrix für Korrelation Ort × Befinden.
+     Schlüssel: "<ort>␟<befinden>" (Unit-Separator als sicherer Trenner,
+     kann in Tag-Namen nicht vorkommen). */
+  const byCombo = {};      // key -> { ort, befinden, sum, count }
   const addTo = (bucketMap, name, v) => {
     if (!name) return;
     if (!bucketMap[name]) bucketMap[name] = { sum: 0, count: 0 };
@@ -784,18 +805,61 @@ function computeStats() {
       allEntries.push({ dk, id, value: v, ts: e.ts, ort, befinden });
       addTo(byOrt, ort, v);
       addTo(byBefinden, befinden, v);
+      if (ort && befinden) {
+        const key = ort + "␟" + befinden;
+        if (!byCombo[key]) byCombo[key] = { ort, befinden, sum: 0, count: 0 };
+        byCombo[key].sum += v;
+        byCombo[key].count += 1;
+      }
     }
-    if (vals.length) dayAvgs[dk] = avg(vals);
+    if (vals.length) {
+      dayAvgs[dk] = avg(vals);
+      dayCounts[dk] = vals.length;
+      if (vals.length >= 2) daySwings[dk] = Math.max(...vals) - Math.min(...vals);
+    }
   }
-  return { dayAvgs, allEntries, byOrt, byBefinden, dayKeys: Object.keys(dayAvgs).sort() };
+  return {
+    dayAvgs, dayCounts, daySwings,
+    allEntries, byOrt, byBefinden, byCombo,
+    dayKeys: Object.keys(dayAvgs).sort()
+  };
 }
 
-/* Zeitliche Aggregate für Heute/Woche/Monat/Spektrum bündeln */
+/* Tracking-Coverage: wie konsequent wird seit dem ersten Eintrag erfasst.
+   Gibt {firstKey, daysSinceFirst, trackedDays, coveragePct, longestGap, gapDk}. */
+function computeCoverage(stats) {
+  const keys = stats.dayKeys;
+  if (!keys.length) return null;
+  const firstKey = keys[0];
+  const first = parseDayKey(firstKey);
+  const todayMid = new Date(); todayMid.setHours(0,0,0,0);
+  const daysSinceFirst = Math.round((todayMid - first) / 86400000) + 1;
+  const trackedDays = keys.length;
+  const coveragePct = daysSinceFirst > 0 ? (trackedDays / daysSinceFirst) * 100 : 0;
+  // Längste Lücke zwischen zwei aufeinander folgenden erfassten Tagen
+  let longestGap = 0, gapDk = null;
+  for (let i = 1; i < keys.length; i++) {
+    const prev = parseDayKey(keys[i-1]);
+    const cur = parseDayKey(keys[i]);
+    const gap = Math.round((cur - prev) / 86400000) - 1;
+    if (gap > longestGap) { longestGap = gap; gapDk = keys[i]; }
+  }
+  // Auch: aktuelle Lücke (letzter Eintrag bis heute), falls relevanter
+  const lastKey = keys[keys.length - 1];
+  const lastDate = parseDayKey(lastKey);
+  const currentGap = Math.max(0, Math.round((todayMid - lastDate) / 86400000));
+  return { firstKey, daysSinceFirst, trackedDays, coveragePct, longestGap, gapDk, currentGap };
+}
+
+/* Zeitliche Aggregate für Heute/Woche/Monat/Spektrum bündeln.
+   Wichtig: weekAgo/monthAgo werden auf Mitternacht normiert, sonst fällt
+   der älteste Tag aus dem Fenster, weil parseDayKey ebenfalls Mitternacht
+   ist und der jetzt-Zeitstempel später am Tag liegt (Off-by-one). */
 function computePeriodAggregates(stats) {
   const today = dayKey(new Date());
   const todayAvg = stats.dayAvgs[today] ?? null;
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6);
-  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate()-29);
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6); weekAgo.setHours(0,0,0,0);
+  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate()-29); monthAgo.setHours(0,0,0,0);
 
   const weekAvgs = [], monthAvgs = [];
   for (const dk in stats.dayAvgs) {
@@ -963,18 +1027,25 @@ function renderHeroToday(stats) {
 }
 
 function computeFluidityIndex(stats) {
-  const vals = Object.values(stats.dayAvgs);
-  if (vals.length < 2) return { score: null, sd: 0, label: "noch zu wenig Daten" };
-  const sd = stddev(vals);
-  // SD-Maximum bei gleichmäßig oszillierenden 0/100-Tagen ist 50.
-  const score = Math.max(0, Math.min(100, Math.round(sd / 50 * 100)));
+  const dayVals = Object.values(stats.dayAvgs);
+  const entryVals = stats.allEntries.map(e => e.value);
+  if (entryVals.length < 2) return { score: null, sdEntries: 0, sdDays: 0, label: "noch zu wenig Daten" };
+  // σ über alle Check-ins (erfasst auch Intra-Day-Swings — der eigentliche
+  // Kern von "fluid"). σ_Tage bleibt sekundär für Tag-zu-Tag-Schwankung.
+  const sdEntries = stddev(entryVals);
+  const sdDays = dayVals.length >= 2 ? stddev(dayVals) : 0;
+  /* Empirische Kalibrierung: σ=25 entspricht in der Praxis "sehr stark
+     schwankend"; ein theoretisches Maximum von σ=50 (oszillierende
+     0/100-Werte) ist real nie erreicht und ließ die alten Labels
+     "sehr fluid"/"extrem fluid" unerreichbar. */
+  const score = Math.max(0, Math.min(100, Math.round(sdEntries / 25 * 100)));
   let label;
   if (score <= 20)      label = "sehr stabil";
   else if (score <= 40) label = "leicht fluid";
   else if (score <= 60) label = "fluid";
   else if (score <= 80) label = "sehr fluid";
   else                  label = "extrem fluid";
-  return { score, sd, label };
+  return { score, sdEntries, sdDays, label };
 }
 
 function renderFluidityIndex(stats) {
@@ -991,17 +1062,26 @@ function renderFluidityIndex(stats) {
       </div>`;
     return;
   }
+  // Intra-Day-Anteil: wie viel der Streuung passiert innerhalb eines Tages,
+  // statt zwischen Tagen. Hilft, "Tag-zu-Tag-fluid" von "Im-Tag-fluid" zu trennen.
+  const swings = Object.values(stats.daySwings);
+  const avgSwing = swings.length ? avg(swings) : null;
+  const sub = `σ Einträge ${f.sdEntries.toFixed(1)} · σ Tage ${f.sdDays.toFixed(1)}`;
+  const intraNote = avgSwing != null
+    ? `<div class="fluidity-intra">Ø Schwankung <b>innerhalb eines Tages</b>: ${avgSwing.toFixed(0)} Punkte (aus ${swings.length} Tagen mit mehreren Check-ins).</div>`
+    : `<div class="fluidity-intra">Erfasse mehrmals pro Tag, um die Schwankung <b>innerhalb eines Tages</b> sichtbar zu machen.</div>`;
   container.innerHTML = `
     <div class="fluidity-score">
       <div class="num">${f.score}</div>
       <div class="lbl">${f.label}</div>
-      <div class="sub">σ = ${f.sd.toFixed(1)}</div>
+      <div class="sub">${sub}</div>
       <div class="meter"><div style="width:${f.score}%"></div></div>
     </div>
     <div class="fluidity-explain">
       Dein Identitätsspektrum schwankt mit einem Index von <b>${f.score}/100</b>.
-      Je höher der Wert, desto fluider bist du – statt eines starren Mittelwerts
-      misst er die <b>Beweglichkeit</b> deiner Tageswerte.
+      Der Wert basiert auf der Streuung <b>aller Check-ins</b> — Schwankungen
+      innerhalb eines Tages zählen genauso wie Tag-zu-Tag-Wechsel.
+      ${intraNote}
     </div>`;
 }
 
@@ -1044,8 +1124,8 @@ function renderBuckets(stats) {
   // Swatches
   const today = dayKey(new Date());
   const todayAvg = stats.dayAvgs[today];
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6);
-  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate()-29);
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6); weekAgo.setHours(0,0,0,0);
+  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate()-29); monthAgo.setHours(0,0,0,0);
   const weekVals=[], monthVals=[];
   for (const dk in stats.dayAvgs) {
     const d = parseDayKey(dk);
@@ -1094,6 +1174,21 @@ function renderSparkline(stats) {
     path += (last === null ? `M ${x} ${y}` : ` L ${x} ${y}`);
     last = { x, y };
   });
+  /* EMA-Glättung (Halbwertszeit ~5 Tage): zeigt den Trend ohne die
+     Outlier-Sprünge der Rohwerte. Wird nur fortgeführt, solange wir
+     keinen Datenpunkt-Reset hatten — Lücken brechen die Linie. */
+  const alpha = 2 / (5 + 1); // span=5
+  let ema = null;
+  let emaPath = "";
+  let emaLast = null;
+  pts.forEach((p, idx) => {
+    if (p.v == null) { ema = null; emaLast = null; return; }
+    ema = ema == null ? p.v : alpha * p.v + (1 - alpha) * ema;
+    const x = pad + idx*xStep;
+    const y = pad + (1 - ema/100) * (h - pad*2);
+    emaPath += (emaLast === null ? `M ${x} ${y}` : ` L ${x} ${y}`);
+    emaLast = { x, y };
+  });
   const dots = pts.map((p, idx) => {
     if (p.v == null) return "";
     const c = valueToColor(p.v);
@@ -1110,7 +1205,8 @@ function renderSparkline(stats) {
       </linearGradient>
     </defs>
     <line x1="0" x2="${w}" y1="${h/2}" y2="${h/2}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="2 3"/>
-    <path d="${path}" fill="none" stroke="url(#sg)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${path}" fill="none" stroke="url(#sg)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.55"/>
+    <path d="${emaPath}" fill="none" stroke="url(#sg)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}
   `;
 }
@@ -1118,17 +1214,30 @@ function renderSparkline(stats) {
 function renderHeatmap(stats) {
   const hm = document.getElementById("heatmap");
   hm.innerHTML = "";
-  const end = new Date();
+  const end = new Date(); end.setHours(0,0,0,0);
   const todayK = dayKey(end);
-  const start = new Date(end); start.setMonth(start.getMonth()-12);
+  /* Robuster Startpunkt: exakt 365 Tage zurück (statt setMonth(-12), das
+     an Monatskanten wie 31. März in nicht-existente Daten kippt) und auf
+     Mitternacht normiert (DST-Schutz). */
+  const start = new Date(end); start.setDate(start.getDate() - 365);
   // align start to Monday
   const offset = (start.getDay()+6)%7;
   start.setDate(start.getDate()-offset);
-  // Tage zwischen ausgerichtetem Start (Mo) und heute, dann zur vollen Woche auffüllen
-  const days = Math.ceil((end - start)/(1000*60*60*24)) + 1;
-  const total = days + ((7 - (days % 7)) % 7);
-  for (let i=0;i<total;i++) {
-    const d = new Date(start); d.setDate(start.getDate()+i);
+  /* Kalender-Iteration statt Math.ceil(ms-Diff/86400000): DST-Tage haben
+     23/25 h und brechen die ms-Schätzung. Wir zählen Tage real ab. */
+  const cells = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    cells.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  // Bis zur vollen Woche auffüllen
+  while (cells.length % 7 !== 0) {
+    const next = new Date(cells[cells.length-1]);
+    next.setDate(next.getDate() + 1);
+    cells.push(next);
+  }
+  for (const d of cells) {
     const dk = dayKey(d);
     const v = stats.dayAvgs[dk];
     const cell = document.createElement("div");
@@ -1172,24 +1281,30 @@ function renderHistogram(stats) {
 }
 
 function renderWeekdays(stats) {
+  /* Median statt Ø: robuster gegen einzelne Outlier-Tage, vor allem bei
+     niedrigem N. Bei N=1 fällt Median = der eine Wert; das ist OK, aber
+     wir markieren es visuell als "wenig Daten" (low-confidence). */
   const names = ["Mo","Di","Mi","Do","Fr","Sa","So"];
-  const sums = new Array(7).fill(0), cnts = new Array(7).fill(0);
+  const buckets = Array.from({length:7}, () => []);
   for (const dk in stats.dayAvgs) {
     const d = parseDayKey(dk);
     const w = (d.getDay()+6)%7;
-    sums[w] += stats.dayAvgs[dk]; cnts[w]++;
+    buckets[w].push(stats.dayAvgs[dk]);
   }
   const row = document.getElementById("weekdayRow");
   row.innerHTML = "";
   for (let i=0;i<7;i++) {
-    const v = cnts[i] ? sums[i]/cnts[i] : null;
+    const vals = buckets[i];
+    const v = vals.length ? median(vals) : null;
     const c = v != null ? valueToColor(v) : null;
+    const lowN = vals.length > 0 && vals.length < 3;
     const div = document.createElement("div");
-    div.className = "wd";
+    div.className = "wd" + (lowN ? " wd-low" : "");
     div.innerHTML = `
       <div class="n">${names[i]}</div>
       <div class="v" style="${c?`color:${c.hex}`:''}">${v!=null?v.toFixed(1):"—"}</div>
       <div class="sw" style="background:${c?c.hex:'rgba(255,255,255,0.06)'}"></div>
+      <div class="wd-n" title="${vals.length} Tag${vals.length===1?"":"e"} erfasst">n=${vals.length}</div>
     `;
     row.appendChild(div);
   }
@@ -1220,13 +1335,24 @@ function renderStreaks(stats) {
   // Volatility = std-dev of day averages
   const vols = Object.values(stats.dayAvgs);
   const vol = stddev(vols);
-  // Min / Max
+  /* Min / Max — bevorzugt Tage mit mindestens 2 Einträgen (sonst kann
+     ein einzelner Ausreißer-Eintrag den "weiblichsten/männlichsten Tag
+     aller Zeiten" diktieren). Fallback auf alle Tage, falls noch keine
+     Multi-Eintrag-Tage existieren. */
   let minDay=null, maxDay=null;
-  for (const dk in stats.dayAvgs) {
-    const v = stats.dayAvgs[dk];
-    if (minDay===null || v < stats.dayAvgs[minDay]) minDay = dk;
-    if (maxDay===null || v > stats.dayAvgs[maxDay]) maxDay = dk;
-  }
+  const pickFrom = (predicate) => {
+    let lo = null, hi = null;
+    for (const dk in stats.dayAvgs) {
+      if (!predicate(dk)) continue;
+      const v = stats.dayAvgs[dk];
+      if (lo === null || v < stats.dayAvgs[lo]) lo = dk;
+      if (hi === null || v > stats.dayAvgs[hi]) hi = dk;
+    }
+    return { lo, hi };
+  };
+  let picked = pickFrom(dk => (stats.dayCounts[dk] || 0) >= 2);
+  if (!picked.lo) picked = pickFrom(() => true);
+  minDay = picked.lo; maxDay = picked.hi;
   // Trend: linear slope of last 30 days
   const today = new Date();
   const pts = [];
@@ -1269,15 +1395,37 @@ function renderStreaks(stats) {
   const trendArrow = slope > 0.5 ? "↗" : slope < -0.5 ? "↘" : "→";
   const trendDir = slope > 0.5 ? "Richtung männlich" : slope < -0.5 ? "Richtung weiblich" : "stabil";
   const fmtDay = dk => dk ? parseDayKey(dk).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "long" }) : "";
+  const subForRecord = dk => {
+    if (!dk) return "";
+    const n = stats.dayCounts[dk] || 0;
+    return `${fmtDay(dk)} · ${n} Check-in${n===1?"":"s"}`;
+  };
+  // Intra-Day-Swing-Statistik
+  const swings = Object.values(stats.daySwings);
+  const swingMean = swings.length ? avg(swings) : null;
+  const swingMax = swings.length ? Math.max(...swings) : null;
+  const cov = computeCoverage(stats);
+  const coverageCell = cov
+    ? cell("Tracking-Coverage",
+        `${cov.coveragePct.toFixed(0)}%`,
+        `${cov.trackedDays}/${cov.daysSinceFirst} Tage · längste Lücke ${cov.longestGap}d`)
+    : cell("Tracking-Coverage", "—", "noch keine Daten");
+  const swingCell = swingMean != null
+    ? cell("Intra-Day-Swing",
+        `Ø ${swingMean.toFixed(0)}`,
+        `max ${swingMax.toFixed(0)} Punkte · ${swings.length} Tage`)
+    : cell("Intra-Day-Swing", "—", "≥2 Check-ins/Tag nötig");
   document.getElementById("streakStats").innerHTML = [
     cell("Längste ♀-Serie", longestF + " Tage", "in Folge", "var(--pink)"),
     cell("Längste ⚧-Serie", longestFL + " Tage", "fluid in Folge", "var(--neutral)"),
     cell("Längste ♂-Serie", longestM + " Tage", "in Folge", "var(--blue)"),
-    cell("Volatilität σ", vol.toFixed(1), "Streuung Tageswerte"),
-    cell("Weiblichster Tag", minDay ? stats.dayAvgs[minDay].toFixed(1) : "—", fmtDay(minDay), minColor),
-    cell("Männlichster Tag", maxDay ? stats.dayAvgs[maxDay].toFixed(1) : "—", fmtDay(maxDay), maxColor),
+    cell("Volatilität σ", vol.toFixed(1), "Streuung Tages-Mittel"),
+    cell("Weiblichster Tag", minDay ? stats.dayAvgs[minDay].toFixed(1) : "—", subForRecord(minDay), minColor),
+    cell("Männlichster Tag", maxDay ? stats.dayAvgs[maxDay].toFixed(1) : "—", subForRecord(maxDay), maxColor),
     cell("Trend 30d " + trendArrow, slope.toFixed(2) + "/d", trendDir),
-    cell("Top-Tageszeit", topPart, topPartCnt + " Check-ins")
+    cell("Top-Tageszeit", topPart, topPartCnt + " Check-ins"),
+    coverageCell,
+    swingCell
   ].join("");
 }
 
@@ -1285,6 +1433,76 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, ch => ({
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
   }[ch]));
+}
+
+/* Korrelations-Matrix Ort × Befinden:
+   Zeigt für jede Kombination (Ort, Befinden) den Ø-Wert (farbig) und die
+   Anzahl Check-ins (Zellgröße visuell durch Opacity bei N<3 abgedämpft).
+   Reduziert Zeilen/Spalten auf jene mit ausreichend Datenpunkten, damit
+   die Matrix bei 50 Orten × 30 Befinden nicht explodiert. */
+function renderComboMatrix(stats) {
+  const container = document.getElementById("comboMatrix");
+  if (!container) return;
+  const combos = Object.values(stats.byCombo);
+  if (combos.length === 0) {
+    container.innerHTML = `<div class="sit-empty">Erfasse Ort UND Befinden im selben Check-in, um Muster zwischen beiden sichtbar zu machen.</div>`;
+    return;
+  }
+  // Spalten = Orte mit ≥2 Check-ins gesamt, Zeilen = Befinden ≥2.
+  // Sortierung: häufigste zuerst, dann alphabetisch (de).
+  const orte = Object.entries(stats.byOrt)
+    .filter(([, a]) => a.count >= 2)
+    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0], "de"))
+    .map(([name]) => name);
+  const befinden = Object.entries(stats.byBefinden)
+    .filter(([, a]) => a.count >= 2)
+    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0], "de"))
+    .map(([name]) => name);
+
+  if (!orte.length || !befinden.length) {
+    container.innerHTML = `<div class="sit-empty">Noch zu wenig Daten. Tagge regelmäßig sowohl Ort als auch Befinden — ab ca. 2 Vorkommen pro Tag auftauchen hier Muster.</div>`;
+    return;
+  }
+  // Top-12 Limitierung, damit die Matrix lesbar bleibt
+  const orteShown = orte.slice(0, 12);
+  const befShown = befinden.slice(0, 12);
+  const lookup = (o, b) => stats.byCombo[o + "␟" + b];
+
+  let html = `<div class="combo-grid" style="grid-template-columns: minmax(80px, 1.4fr) repeat(${orteShown.length}, minmax(48px, 1fr));">`;
+  // Header-Zeile
+  html += `<div class="combo-corner"></div>`;
+  for (const o of orteShown) {
+    html += `<div class="combo-col-head" title="${escapeHtml(o)}">${escapeHtml(o)}</div>`;
+  }
+  // Datenzeilen
+  for (const b of befShown) {
+    html += `<div class="combo-row-head" title="${escapeHtml(b)}">${escapeHtml(b)}</div>`;
+    for (const o of orteShown) {
+      const c = lookup(o, b);
+      if (!c) {
+        html += `<div class="combo-cell combo-empty" title="${escapeHtml(o)} × ${escapeHtml(b)}: keine Daten"></div>`;
+        continue;
+      }
+      const avgV = c.sum / c.count;
+      const col = valueToColor(avgV);
+      const opacity = c.count >= 3 ? 1 : 0.45;
+      const txt = contrastText(col);
+      html += `
+        <div class="combo-cell"
+             style="background:${col.hex}; opacity:${opacity}; color:${txt}"
+             title="${escapeHtml(o)} × ${escapeHtml(b)}: Ø ${avgV.toFixed(1)} (${valueToLabel(avgV)}) · n=${c.count}">
+          <span class="combo-v">${avgV.toFixed(0)}</span>
+          <span class="combo-n">${c.count}</span>
+        </div>`;
+    }
+  }
+  html += `</div>`;
+  const hiddenOrte = orte.length - orteShown.length;
+  const hiddenBef = befinden.length - befShown.length;
+  if (hiddenOrte > 0 || hiddenBef > 0) {
+    html += `<div class="combo-note">Zeigt die häufigsten 12×12. Weitere Tags ausgeblendet: ${hiddenOrte} Ort${hiddenOrte===1?"":"e"}, ${hiddenBef} Befinden.</div>`;
+  }
+  container.innerHTML = html;
 }
 
 function renderTagStats(containerId, byTag, emptyText) {
@@ -1302,11 +1520,12 @@ function renderTagStats(containerId, byTag, emptyText) {
   container.innerHTML = entries.map(({ name, avg, count }) => {
     const c = valueToColor(avg);
     const pct = Math.max(0, Math.min(100, avg));
+    const lowN = count < 5;
     return `
-      <div class="sit-row">
+      <div class="sit-row${lowN ? " sit-low" : ""}">
         <div class="sit-head">
           <span class="sit-name">${escapeHtml(name)}</span>
-          <span class="sit-count">${count}×</span>
+          <span class="sit-count">${count}×${lowN ? " · wenig Daten" : ""}</span>
         </div>
         <div class="sit-bar">
           <div class="sit-marker" style="left:${pct}%; background:${c.hex}; border-color:${c.hex};"></div>
@@ -1486,13 +1705,23 @@ function computeInsights(stats) {
   }
 
   // 8) All-Time-Rekord innerhalb der letzten 14 Tage
+  //    Bevorzugt Tage mit ≥2 Einträgen, fällt sonst auf alle Tage zurück
+  //    (ein einzelner Outlier-Eintrag soll nicht "Tag aller Zeiten" werden).
   if (dayKeysSorted.length >= 3) {
     let minDay = null, maxDay = null;
-    for (const dk of dayKeysSorted) {
-      const v = dayAvgs[dk];
-      if (minDay === null || v < dayAvgs[minDay]) minDay = dk;
-      if (maxDay === null || v > dayAvgs[maxDay]) maxDay = dk;
-    }
+    const pick = (predicate) => {
+      let lo = null, hi = null;
+      for (const dk of dayKeysSorted) {
+        if (!predicate(dk)) continue;
+        const v = dayAvgs[dk];
+        if (lo === null || v < dayAvgs[lo]) lo = dk;
+        if (hi === null || v > dayAvgs[hi]) hi = dk;
+      }
+      return { lo, hi };
+    };
+    let picked = pick(dk => (stats.dayCounts[dk] || 0) >= 2);
+    if (!picked.lo) picked = pick(() => true);
+    minDay = picked.lo; maxDay = picked.hi;
     const todayK = dayKey(new Date());
     // Floor + leichtes DST-Padding: bei Sommerzeit-Wechsel rutscht der Mitternachtsabstand
     // um ±1 h; +0.5 h-Offset hält Math.floor stabil bei exakten Tageskanten.
@@ -1560,6 +1789,7 @@ function renderAll() {
   renderWeekdays(stats);
   renderTagStats("ortStats", stats.byOrt, "Noch keine Orte erfasst — füge im Check-in einen hinzu.");
   renderTagStats("befindenStats", stats.byBefinden, "Noch kein Befinden erfasst — füge im Check-in eins hinzu.");
+  renderComboMatrix(stats);
   renderInsights(stats);
   renderStreaks(stats);
   if (sheet.classList.contains("open")) {
