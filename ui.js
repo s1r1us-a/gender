@@ -41,6 +41,14 @@ let befindenChips, befindenNewInput;
 let begleitungChips, begleitungNewInput;
 let sliderTicks, noteInput, noteCount;
 let exportBtn;
+let saveBtn, cancelBtn, nowBtn;
+let modeBanner, modeBannerIcon, modeBannerTitle, modeBannerSub, modeBannerDirty;
+let modeResetLink, entryResetRow, newEntryBtn;
+let confirmOverlay, confirmTitleEl, confirmBody, confirmNote, confirmCancel, confirmOk;
+
+/* Snapshot der Form-Werte beim Öffnen / Wechseln des Eintrags.
+   Wird für Dirty-Detection bei Schließen / Switch / Reset verwendet. */
+let sheetInitial = null;
 
 /* Aktuelle Mehrfach-Auswahl im offenen Sheet. Wird beim Öffnen / Wechsel
    des Eintrags neu befüllt und beim Speichern in Array/String/null
@@ -207,6 +215,7 @@ function renderChipGroup(container, newInput, knownAll, selected, newLabel) {
       if (selected.has(tag)) selected.delete(tag);
       else selected.add(tag);
       renderChipGroup(container, newInput, knownAll, selected, newLabel);
+      refreshDirtyIndicator();
     });
     container.append(btn);
   }
@@ -231,6 +240,14 @@ function commitNewChip(newInput, container, knownAll, selected, newLabel) {
   // Neuer Tag soll sofort im Vorrat erscheinen.
   if (!knownAll.includes(val)) knownAll.push(val);
   renderChipGroup(container, newInput, knownAll, selected, newLabel);
+  /* Sichtbares Feedback: kurz animierter Pop am neuen Chip, leichte Vibration. */
+  const justAdded = container.querySelector(`.chip[data-value="${CSS.escape(val)}"]`);
+  if (justAdded) {
+    justAdded.classList.add("chip-just-added");
+    setTimeout(() => justAdded.classList.remove("chip-just-added"), 500);
+  }
+  haptic("save");
+  refreshDirtyIndicator();
 }
 
 function wireNewInput(newInput, container, getKnown, selected, newLabel) {
@@ -266,6 +283,328 @@ export function populateBegleitungChips() {
   );
 }
 
+/* ---------- Confirm-Modal (generisch) ---------- */
+let _confirmOpen = false;
+let _confirmOnOk = null;
+let _confirmPrevFocus = null;
+
+/* Öffnet ein blockierendes Bestätigungs-Modal.
+   opts: { title, bodyHtml, summaryNode?, noteText?, confirmLabel, danger, onConfirm } */
+function openConfirm(opts) {
+  if (_confirmOpen) return; // Re-Entrancy verhindern
+  _confirmOpen = true;
+  _confirmOnOk = typeof opts.onConfirm === "function" ? opts.onConfirm : null;
+  _confirmPrevFocus = document.activeElement;
+
+  confirmTitleEl.textContent = opts.title || "Bestätigen?";
+  /* Body wird als Sicherheits-Vorsichtsmaßnahme entweder als Text oder als
+     vorbereiteter DOM-Knoten gesetzt — niemals roh aus User-Input gebaut. */
+  confirmBody.replaceChildren();
+  if (opts.bodyHtml) {
+    const p = document.createElement("p");
+    p.textContent = opts.bodyHtml;
+    confirmBody.append(p);
+  }
+  if (opts.summaryNode) confirmBody.append(opts.summaryNode);
+
+  if (opts.noteText) {
+    confirmNote.textContent = opts.noteText;
+    confirmNote.hidden = false;
+  } else {
+    confirmNote.hidden = true;
+    confirmNote.textContent = "";
+  }
+
+  confirmOk.textContent = opts.confirmLabel || "Bestätigen";
+  confirmOverlay.classList.toggle("is-danger", !!opts.danger);
+  confirmOk.classList.toggle("is-danger", !!opts.danger);
+  confirmOverlay.hidden = false;
+  document.body.classList.add("modal-open");
+
+  /* Sicherer Default-Fokus: Cancel (nicht der gefährliche Button). */
+  requestAnimationFrame(() => { try { confirmCancel.focus(); } catch (_) {} });
+}
+
+function closeConfirm(invokeOk) {
+  if (!_confirmOpen) return;
+  const cb = _confirmOnOk;
+  _confirmOpen = false;
+  _confirmOnOk = null;
+  confirmOverlay.hidden = true;
+  /* Body-Modal-Open-Class nur entfernen, wenn das Sheet auch zu ist. */
+  if (!sheet.classList.contains("open")) {
+    document.body.classList.remove("modal-open");
+  }
+  if (invokeOk && cb) {
+    try { cb(); } catch (e) { console.error(e); }
+  }
+  /* Fokus zurück auf den Auslöser, falls noch im DOM. */
+  if (_confirmPrevFocus && document.contains(_confirmPrevFocus)) {
+    try { _confirmPrevFocus.focus(); } catch (_) {}
+  }
+  _confirmPrevFocus = null;
+}
+
+/* ---------- Dirty-State ---------- */
+function readFormSnapshot() {
+  const readSelectTag = (selectEl, inputEl) =>
+    selectEl.value === "__new__" ? (inputEl.value || "").trim() : (selectEl.value || "").trim();
+  return {
+    value: sliderValue(),
+    time: timeInput.value || "",
+    ort: readSelectTag(ortSelect, ortInput),
+    befinden: Array.from(selectedBefinden).sort(),
+    begleitung: Array.from(selectedBegleitung).sort(),
+    note: (noteInput.value || "").trim(),
+    pendingBef: (befindenNewInput.value || "").trim(),
+    pendingBegl: (begleitungNewInput.value || "").trim(),
+  };
+}
+
+function arrEq(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function isSheetDirty() {
+  if (!sheetInitial) return false;
+  const now = readFormSnapshot();
+  return (
+    now.value !== sheetInitial.value ||
+    now.time !== sheetInitial.time ||
+    now.ort !== sheetInitial.ort ||
+    !arrEq(now.befinden, sheetInitial.befinden) ||
+    !arrEq(now.begleitung, sheetInitial.begleitung) ||
+    now.note !== sheetInitial.note ||
+    now.pendingBef !== "" ||
+    now.pendingBegl !== ""
+  );
+}
+
+function refreshDirtyIndicator() {
+  if (!modeBannerDirty) return;
+  modeBannerDirty.hidden = !isSheetDirty();
+}
+
+/* ---------- Modus-Banner ---------- */
+function updateModeBanner() {
+  if (!modeBanner) return;
+  const dk = state.selectedDayKey;
+  const editingId = state.editingEntryId;
+  const isEdit = !!(dk && editingId && state.data[dk] && state.data[dk][editingId]);
+  modeBanner.dataset.mode = isEdit ? "edit" : "new";
+  if (isEdit) {
+    const e = state.data[dk][editingId];
+    const v = Number(e.value);
+    const lbl = valueToLabel(v);
+    const sym = valueToSymbol(v);
+    const when = e.ts ? fmtTime(e.ts) : "—";
+    modeBannerIcon.textContent = "✏️";
+    modeBannerTitle.textContent = "Eintrag bearbeiten";
+    modeBannerSub.textContent = `${when} · ${sym} ${lbl} (${v})`;
+    entryResetRow.hidden = false;
+    modeResetLink.hidden = false;
+    modeResetLink.textContent = `↺ Original (${v})`;
+    saveBtn.textContent = "Änderungen speichern";
+  } else {
+    modeBannerIcon.textContent = "🆕";
+    modeBannerTitle.textContent = "Neuer Eintrag";
+    const isToday = dk === dayKey(new Date());
+    modeBannerSub.textContent = isToday
+      ? "Heute · wird als neuer Check-in angelegt"
+      : (dk
+        ? `${parseDayKey(dk).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" })} · rückwirkender Eintrag`
+        : "");
+    entryResetRow.hidden = true;
+    modeResetLink.hidden = true;
+    saveBtn.textContent = "Eintrag speichern";
+  }
+  refreshDirtyIndicator();
+}
+
+/* ---------- Summary-Builder fürs Confirm-Modal ---------- */
+function makeSummaryRow(key, valNode) {
+  const row = document.createElement("div");
+  row.className = "cs-row";
+  const k = document.createElement("div");
+  k.className = "cs-key";
+  k.textContent = key;
+  const v = document.createElement("div");
+  v.className = "cs-val";
+  if (typeof valNode === "string") v.textContent = valNode;
+  else v.append(valNode);
+  row.append(k, v);
+  return row;
+}
+
+function emText(text) {
+  const em = document.createElement("em");
+  em.textContent = text;
+  return em;
+}
+
+/* Diff-Wert: zeigt alt → neu, falls verschieden. */
+function diffSpan(oldVal, newVal) {
+  const wrap = document.createElement("span");
+  const same = oldVal === newVal;
+  if (same) {
+    const s = document.createElement("span");
+    s.className = "same";
+    s.textContent = newVal || "—";
+    wrap.append(s);
+  } else {
+    if (oldVal) {
+      const o = document.createElement("span");
+      o.className = "old";
+      o.textContent = oldVal;
+      wrap.append(o);
+    }
+    const n = document.createElement("span");
+    n.className = "new changed";
+    n.textContent = newVal || "—";
+    wrap.append(n);
+  }
+  return wrap;
+}
+
+function tagsText(arr) {
+  return arr.length ? arr.join(", ") : "";
+}
+
+function buildSaveSummary(opts) {
+  /* opts: { isEdit, oldEntry, newValues:{ value, time, ort, befinden, begleitung, note }, dkLabel } */
+  const wrap = document.createElement("div");
+  wrap.className = "confirm-summary";
+  const head = document.createElement("div");
+  head.className = "cs-head";
+  head.textContent = opts.isEdit ? "Was sich ändert" : "Was gespeichert wird";
+  wrap.append(head);
+
+  const nv = opts.newValues;
+  const sym = valueToSymbol(nv.value);
+  const lbl = valueToLabel(nv.value);
+  const valTxt = `${sym} ${lbl} (${nv.value})`;
+
+  if (opts.isEdit) {
+    const old = opts.oldEntry || {};
+    const oldVal = Number(old.value);
+    const oldValTxt = Number.isFinite(oldVal) ? `${valueToSymbol(oldVal)} ${valueToLabel(oldVal)} (${oldVal})` : "";
+    wrap.append(makeSummaryRow("Wert", diffSpan(oldValTxt, valTxt)));
+
+    const oldTime = old.ts ? fmtTime(old.ts) : "";
+    wrap.append(makeSummaryRow("Uhrzeit", diffSpan(oldTime, nv.time || "—")));
+
+    const oldOrt = ((old.ort ?? old.situation) || "").trim();
+    wrap.append(makeSummaryRow("Ort", diffSpan(oldOrt, nv.ort)));
+
+    const oldBef = normalizeTags(old.befinden).slice().sort();
+    const newBef = nv.befinden.slice().sort();
+    wrap.append(makeSummaryRow("Befinden", diffSpan(tagsText(oldBef), tagsText(newBef))));
+
+    const oldBegl = normalizeTags(old.begleitung).slice().sort();
+    const newBegl = nv.begleitung.slice().sort();
+    wrap.append(makeSummaryRow("Begleitung", diffSpan(tagsText(oldBegl), tagsText(newBegl))));
+
+    const oldNote = (old.note || "").trim();
+    wrap.append(makeSummaryRow("Notiz", diffSpan(oldNote, nv.note)));
+  } else {
+    wrap.append(makeSummaryRow("Datum", opts.dkLabel || ""));
+    wrap.append(makeSummaryRow("Wert", valTxt));
+    wrap.append(makeSummaryRow("Uhrzeit", nv.time || emText("(keine)")));
+    wrap.append(makeSummaryRow("Ort", nv.ort || emText("(keiner)")));
+    wrap.append(makeSummaryRow("Befinden", tagsText(nv.befinden) || emText("(keins)")));
+    wrap.append(makeSummaryRow("Begleitung", tagsText(nv.begleitung) || emText("(keine)")));
+    wrap.append(makeSummaryRow("Notiz", nv.note || emText("(keine)")));
+  }
+  return wrap;
+}
+
+function buildDeleteSummary(entry) {
+  const wrap = document.createElement("div");
+  wrap.className = "confirm-summary";
+  const head = document.createElement("div");
+  head.className = "cs-head";
+  head.textContent = "Dieser Eintrag wird gelöscht";
+  wrap.append(head);
+
+  const v = Number(entry.value);
+  const valTxt = Number.isFinite(v) ? `${valueToSymbol(v)} ${valueToLabel(v)} (${v})` : "—";
+  wrap.append(makeSummaryRow("Wert", valTxt));
+  wrap.append(makeSummaryRow("Uhrzeit", entry.ts ? fmtTime(entry.ts) : "—"));
+
+  const ort = ((entry.ort ?? entry.situation) || "").trim();
+  wrap.append(makeSummaryRow("Ort", ort || emText("(keiner)")));
+
+  const bef = normalizeTags(entry.befinden);
+  wrap.append(makeSummaryRow("Befinden", tagsText(bef) || emText("(keins)")));
+
+  const begl = normalizeTags(entry.begleitung);
+  wrap.append(makeSummaryRow("Begleitung", tagsText(begl) || emText("(keine)")));
+
+  const note = (entry.note || "").trim();
+  wrap.append(makeSummaryRow("Notiz", note || emText("(keine)")));
+  return wrap;
+}
+
+/* ---------- Form-Reset / Population (zentrale Helfer) ---------- */
+function populateFormFromEntry(dk, entryId) {
+  const e = state.data[dk] && state.data[dk][entryId];
+  if (!e) return;
+  const v = Number(e.value);
+  setSliderToValue(v);
+  updateFeel();
+  if (Number.isFinite(e.ts)) {
+    const t = new Date(e.ts);
+    timeInput.value = `${pad(t.getHours())}:${pad(t.getMinutes())}`;
+  } else {
+    timeInput.value = "";
+  }
+  populateOrtOptions(((e.ort ?? e.situation) || "").trim());
+  selectedBefinden.clear();
+  for (const t of normalizeTags(e.befinden)) selectedBefinden.add(t);
+  selectedBegleitung.clear();
+  for (const t of normalizeTags(e.begleitung)) selectedBegleitung.add(t);
+  befindenNewInput.hidden = true; befindenNewInput.value = "";
+  begleitungNewInput.hidden = true; begleitungNewInput.value = "";
+  populateBefindenChips();
+  populateBegleitungChips();
+  noteInput.value = (e.note || "").trim();
+  updateNoteCount();
+}
+
+function populateFormDefaults(dk) {
+  const isToday = dk === dayKey(new Date());
+  const entries = state.data[dk] ? Object.entries(state.data[dk]).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)) : [];
+  const lastVal = entries.length ? Number(entries[entries.length - 1][1].value) : NaN;
+  const seed = Number.isFinite(lastVal) ? lastVal : 50;
+  setSliderToValue(seed);
+  updateFeel();
+  const now = new Date();
+  /* Rückwirkende Tage: timeInput bleibt LEER, damit der User bewusst
+     eine Uhrzeit eingibt (verhindert Verzerrung des Tageszeit-Histogramms
+     durch unbewusste 12:00-Defaults). */
+  if (isToday) {
+    timeInput.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  } else {
+    timeInput.value = "";
+  }
+  populateOrtOptions("");
+  selectedBefinden.clear();
+  selectedBegleitung.clear();
+  befindenNewInput.hidden = true; befindenNewInput.value = "";
+  begleitungNewInput.hidden = true; begleitungNewInput.value = "";
+  populateBefindenChips();
+  populateBegleitungChips();
+  noteInput.value = "";
+  updateNoteCount();
+}
+
+/* Snapshot der aktuellen Form als Baseline für Dirty-Detection setzen. */
+function captureInitialSnapshot() {
+  sheetInitial = readFormSnapshot();
+}
+
 export function openSheet(dk, preselectEntryId = null) {
   if (!canWrite()) return;
   state.selectedDayKey = dk;
@@ -281,52 +620,40 @@ export function openSheet(dk, preselectEntryId = null) {
   } else {
     sheetSubtitle.textContent = isToday ? "Wie fühlst du dich gerade?" : "Eintrag rückwirkend erfassen oder bearbeiten.";
   }
-  const entries = state.data[dk] ? Object.entries(state.data[dk]).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)) : [];
-  const lastVal = entries.length ? Number(entries[entries.length - 1][1].value) : NaN;
-  const seed = Number.isFinite(lastVal) ? lastVal : 50;
-  setSliderToValue(seed);
-  updateFeel();
-  const now = new Date();
-  if (isToday) timeInput.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  else timeInput.value = "12:00";
-  populateOrtOptions("");
-  selectedBefinden.clear();
-  selectedBegleitung.clear();
-  befindenNewInput.hidden = true; befindenNewInput.value = "";
-  begleitungNewInput.hidden = true; begleitungNewInput.value = "";
-  populateBefindenChips();
-  populateBegleitungChips();
-  noteInput.value = "";
-  updateNoteCount();
+
+  /* Form befüllen: entweder mit Defaults (neuer Eintrag) oder mit
+     einem konkreten Eintrag (Suche/Tap auf Listenzeile). */
+  if (preselectEntryId && state.data[dk] && state.data[dk][preselectEntryId]) {
+    state.editingEntryId = preselectEntryId;
+    populateFormFromEntry(dk, preselectEntryId);
+  } else {
+    populateFormDefaults(dk);
+  }
+
   renderEntryList(dk);
+  updateModeBanner();
+  captureInitialSnapshot();
+  refreshDirtyIndicator();
+
   backdrop.classList.add("open");
   sheet.classList.add("open");
   document.body.classList.add("modal-open");
-  /* Wenn ein Eintrag vorausgewählt werden soll (z. B. aus der Suche),
-     dessen Daten in das Formular übernehmen. */
-  if (preselectEntryId && state.data[dk] && state.data[dk][preselectEntryId]) {
-    const e = state.data[dk][preselectEntryId];
-    state.editingEntryId = preselectEntryId;
-    const v = Number(e.value);
-    setSliderToValue(v);
-    updateFeel();
-    if (Number.isFinite(e.ts)) {
-      const t = new Date(e.ts);
-      timeInput.value = `${pad(t.getHours())}:${pad(t.getMinutes())}`;
-    }
-    populateOrtOptions((e.ort ?? e.situation ?? "").trim());
-    selectedBefinden.clear();
-    for (const t of normalizeTags(e.befinden)) selectedBefinden.add(t);
-    selectedBegleitung.clear();
-    for (const t of normalizeTags(e.begleitung)) selectedBegleitung.add(t);
-    populateBefindenChips();
-    populateBegleitungChips();
-    noteInput.value = (e.note || "").trim();
-    updateNoteCount();
-    renderEntryList(dk);
-  }
   /* Slider ist die zentrale Aktion → bekommt sofort Fokus für Tastatur-Bedienung. */
   requestAnimationFrame(() => { try { slider.focus(); } catch (_) {} });
+}
+
+/* Setzt das Sheet zurück in den „Neuer Eintrag"-Modus für den aktuell
+   geöffneten Tag — wird vom „Neuen Eintrag anlegen"-Button getriggert,
+   sowie nach einem Save als Aufräumarbeit, falls das Sheet offen bleibt. */
+function resetSheetToNew() {
+  const dk = state.selectedDayKey;
+  if (!dk) return;
+  state.editingEntryId = null;
+  populateFormDefaults(dk);
+  renderEntryList(dk);
+  updateModeBanner();
+  captureInitialSnapshot();
+  refreshDirtyIndicator();
 }
 
 function closeSheet() {
@@ -336,6 +663,21 @@ function closeSheet() {
   applySheetReadonly(false);
   state.selectedDayKey = null;
   state.editingEntryId = null;
+  sheetInitial = null;
+}
+
+/* Vor jedem destruktiven UI-Wechsel (Schließen / Switch / Reset) prüfen,
+   ob noch ungespeicherte Eingaben in der Form sind. Falls ja → Confirm
+   einblenden; Cancel im Confirm bricht ab, Bestätigen ruft `proceed()`. */
+function withDirtyGuard(proceed, opts = {}) {
+  if (!isSheetDirty()) { proceed(); return; }
+  openConfirm({
+    title: opts.title || "Eingaben verwerfen?",
+    bodyHtml: opts.body || "Du hast die Form geändert, aber noch nichts gespeichert. Wenn du jetzt fortfährst, gehen die Änderungen verloren.",
+    confirmLabel: opts.confirmLabel || "Verwerfen",
+    danger: true,
+    onConfirm: proceed
+  });
 }
 
 /* Sperrt/entsperrt alle Eingaben im Sheet — wird für Tage in der
@@ -390,42 +732,54 @@ export function renderEntryList(dk) {
       ...befTags.map(escapeHtml),
       ...beglTags.map(t => `mit ${escapeHtml(t)}`)
     ].filter(Boolean);
+    const isActive = id === state.editingEntryId;
     const row = document.createElement("div");
-    row.className = "entry" + (id === state.editingEntryId ? " active" : "");
+    row.className = "entry" + (isActive ? " active" : "");
+    row.style.setProperty("--active-color", c.hex);
+    row.title = isActive
+      ? "Du bearbeitest diesen Eintrag"
+      : "Klicken, um diesen Eintrag zu bearbeiten";
     row.innerHTML = `
       <div class="dot" style="background:${c.hex}"></div>
       <div class="info">
-        <div class="time">${e.ts ? fmtTime(e.ts) : "—"} · ${valueToLabel(v)}</div>
+        <div class="time">
+          <span>${e.ts ? fmtTime(e.ts) : "—"} · ${valueToLabel(v)}</span>
+          <span class="edit-badge">✏️ wird bearbeitet</span>
+        </div>
         <div class="meta">Wert ${v}${tagParts.length ? ` · ${tagParts.join(" · ")}` : ""}</div>
         ${noteSafe ? `<div class="note-indicator" title="${noteSafe}">${noteSafe}</div>` : ""}
       </div>
-      <button class="del" title="Löschen">✕</button>
+      <button class="del" title="Eintrag löschen" aria-label="Eintrag löschen">✕</button>
     `;
     row.addEventListener("click", (ev) => {
       if (ev.target.classList.contains("del")) return;
-      state.editingEntryId = id;
-      setSliderToValue(v);
-      updateFeel();
-      if (Number.isFinite(e.ts)) {
-        const d = new Date(e.ts);
-        timeInput.value = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-      } else {
-        timeInput.value = "";
-      }
-      populateOrtOptions(ort);
-      selectedBefinden.clear();
-      for (const t of befTags) selectedBefinden.add(t);
-      selectedBegleitung.clear();
-      for (const t of beglTags) selectedBegleitung.add(t);
-      populateBefindenChips();
-      populateBegleitungChips();
-      noteInput.value = note;
-      updateNoteCount();
-      renderEntryList(dk);
+      if (id === state.editingEntryId) return; // schon aktiv
+      const switchTo = () => {
+        state.editingEntryId = id;
+        populateFormFromEntry(dk, id);
+        renderEntryList(dk);
+        updateModeBanner();
+        captureInitialSnapshot();
+        refreshDirtyIndicator();
+      };
+      withDirtyGuard(switchTo, {
+        title: "Anderen Eintrag öffnen?",
+        body: "Du hast die aktuelle Form geändert, aber noch nicht gespeichert. Beim Öffnen eines anderen Eintrags gehen die Änderungen verloren.",
+        confirmLabel: "Trotzdem öffnen"
+      });
     });
     row.querySelector(".del").addEventListener("click", (ev) => {
       ev.stopPropagation();
-      requestDeleteWithUndo(dk, id);
+      const entry = state.data[dk] && state.data[dk][id];
+      if (!entry) return;
+      openConfirm({
+        title: "Eintrag wirklich löschen?",
+        bodyHtml: "Dieser Check-in wird entfernt. Direkt danach kannst du das Löschen 5 Sekunden lang über den Toast widerrufen.",
+        summaryNode: buildDeleteSummary(entry),
+        confirmLabel: "Löschen",
+        danger: true,
+        onConfirm: () => requestDeleteWithUndo(dk, id)
+      });
     });
     entryList.appendChild(row);
   }
@@ -590,12 +944,38 @@ export function initUi() {
   noteInput = document.getElementById("noteInput");
   noteCount = document.getElementById("noteCount");
   exportBtn = document.getElementById("exportBtn");
+  saveBtn   = document.getElementById("saveBtn");
+  cancelBtn = document.getElementById("cancelBtn");
+  nowBtn    = document.getElementById("nowBtn");
+  modeBanner       = document.getElementById("modeBanner");
+  modeBannerIcon   = document.getElementById("modeBannerIcon");
+  modeBannerTitle  = document.getElementById("modeBannerTitle");
+  modeBannerSub    = document.getElementById("modeBannerSub");
+  modeBannerDirty  = document.getElementById("modeBannerDirty");
+  modeResetLink    = document.getElementById("modeResetLink");
+  entryResetRow    = document.getElementById("entryResetRow");
+  newEntryBtn      = document.getElementById("newEntryBtn");
+  confirmOverlay   = document.getElementById("confirmOverlay");
+  confirmTitleEl   = document.getElementById("confirmTitle");
+  confirmBody      = document.getElementById("confirmBody");
+  confirmNote      = document.getElementById("confirmNote");
+  confirmCancel    = document.getElementById("confirmCancel");
+  confirmOk        = document.getElementById("confirmOk");
 
   // Slider-Ticks einmalig erzeugen
   sliderTicks.innerHTML = SCALE.map(s => `<span>${s.tick}</span>`).join("");
 
-  slider.addEventListener("input", updateFeel);
-  noteInput.addEventListener("input", updateNoteCount);
+  // Dirty-Indikator bei jeder Form-Änderung neu setzen.
+  const wireDirtyChange = (el, evt) =>
+    el && el.addEventListener(evt, refreshDirtyIndicator);
+  slider.addEventListener("input", () => { updateFeel(); refreshDirtyIndicator(); });
+  noteInput.addEventListener("input", () => { updateNoteCount(); refreshDirtyIndicator(); });
+  wireDirtyChange(timeInput, "input");
+  wireDirtyChange(ortSelect, "change");
+  wireDirtyChange(ortInput, "input");
+  wireDirtyChange(befindenNewInput, "input");
+  wireDirtyChange(begleitungNewInput, "input");
+
   wireTagSelect(ortSelect, ortInput);
   wireNewInput(
     befindenNewInput, befindenChips,
@@ -608,10 +988,25 @@ export function initUi() {
     selectedBegleitung, "+ neu"
   );
 
-  // Tab-Falle + ESC im Sheet
+  // Tab-Falle + ESC im Sheet (Confirm hat eigene ESC-Behandlung)
   document.addEventListener("keydown", (ev) => {
+    if (_confirmOpen) {
+      if (ev.key === "Escape") { ev.preventDefault(); closeConfirm(false); return; }
+      if (ev.key === "Enter" && document.activeElement === confirmOk) {
+        // Enter auf dem OK-Button löst Confirm bewusst aus — ist Default.
+      }
+      if (ev.key !== "Tab") return;
+      const items = Array.from(confirmOverlay.querySelectorAll(
+        'button:not([disabled])'
+      ));
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+      return;
+    }
     if (!sheet.classList.contains("open")) return;
-    if (ev.key === "Escape") { ev.preventDefault(); closeSheet(); return; }
+    if (ev.key === "Escape") { ev.preventDefault(); attemptCloseSheet(); return; }
     if (ev.key !== "Tab") return;
     const items = focusableInSheet();
     if (!items.length) return;
@@ -619,27 +1014,49 @@ export function initUi() {
     if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
     else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
   });
-  backdrop.onclick = closeSheet;
-  document.getElementById("cancelBtn").onclick = closeSheet;
-  document.getElementById("nowBtn").onclick = () => {
+
+  /* Schließt das Sheet — aber fragt erst nach, falls Form dirty ist. */
+  function attemptCloseSheet() {
+    withDirtyGuard(closeSheet);
+  }
+
+  backdrop.onclick = attemptCloseSheet;
+  cancelBtn.onclick = attemptCloseSheet;
+  nowBtn.onclick = () => {
     const n = new Date();
     timeInput.value = `${pad(n.getHours())}:${pad(n.getMinutes())}`;
+    refreshDirtyIndicator();
   };
 
-  document.getElementById("saveBtn").onclick = () => {
+  /* „Neuen Eintrag anlegen"-Button (sichtbar nur im Edit-Modus). */
+  newEntryBtn.onclick = () => {
+    withDirtyGuard(resetSheetToNew, {
+      title: "Aktuelle Eingaben verwerfen?",
+      body: "Du bearbeitest gerade einen Eintrag. Beim Anlegen eines neuen Eintrags gehen die ungespeicherten Änderungen verloren.",
+      confirmLabel: "Neuen Eintrag anlegen"
+    });
+  };
+
+  /* „↺ Original"-Link im Modus-Banner — setzt nur die Form auf die
+     ursprünglichen Werte des bearbeiteten Eintrags zurück, OHNE den
+     Edit-Modus zu verlassen. */
+  modeResetLink.onclick = () => {
+    const dk = state.selectedDayKey;
+    const id = state.editingEntryId;
+    if (!dk || !id || !state.data[dk] || !state.data[dk][id]) return;
+    populateFormFromEntry(dk, id);
+    refreshDirtyIndicator();
+  };
+
+  saveBtn.onclick = () => {
     if (!canWrite()) return;
     if (!state.selectedDayKey) return;
+    const dk = state.selectedDayKey;
     const v = sliderValue();
-    const [rawHh, rawMm] = (timeInput.value || "12:00").split(":").map(Number);
-    const hh = Number.isFinite(rawHh) ? Math.max(0, Math.min(23, rawHh)) : 12;
-    const mm = Number.isFinite(rawMm) ? Math.max(0, Math.min(59, rawMm)) : 0;
-    const d = parseDayKey(state.selectedDayKey);
-    d.setHours(hh, mm, 0, 0);
-    const ts = d.getTime();
+    /* Form-Werte einsammeln (inkl. ungespeicherter "+ neu"-Tags). */
     const readTag = (selectEl, inputEl) =>
-      selectEl.value === "__new__" ? inputEl.value.trim() : selectEl.value.trim();
+      selectEl.value === "__new__" ? (inputEl.value || "").trim() : (selectEl.value || "").trim();
     const ort = readTag(ortSelect, ortInput);
-    // Ungespeicherten Text im "+ neu"-Feld noch ins Set übernehmen.
     const pendingBef = (befindenNewInput.value || "").trim();
     if (pendingBef) selectedBefinden.add(pendingBef);
     const pendingBegl = (begleitungNewInput.value || "").trim();
@@ -647,11 +1064,73 @@ export function initUi() {
     const befinden = Array.from(selectedBefinden);
     const begleitung = Array.from(selectedBegleitung);
     const note = (noteInput.value || "").trim();
-    saveEntry(state.selectedDayKey, state.editingEntryId, v, ts, ort, befinden, begleitung, note);
-    closeSheet();
+
+    /* Zeit verarbeiten. Leeres Feld → Confirm warnt, dann Default 12:00. */
+    const timeRaw = (timeInput.value || "").trim();
+    const timeEmpty = !timeRaw;
+    const [rawHh, rawMm] = (timeRaw || "12:00").split(":").map(Number);
+    const hh = Number.isFinite(rawHh) ? Math.max(0, Math.min(23, rawHh)) : 12;
+    const mm = Number.isFinite(rawMm) ? Math.max(0, Math.min(59, rawMm)) : 0;
+    const d = parseDayKey(dk);
+    d.setHours(hh, mm, 0, 0);
+    const ts = d.getTime();
+    const timeDisplay = `${pad(hh)}:${pad(mm)}`;
+
+    const editingId = state.editingEntryId;
+    const isEdit = !!editingId;
+    const oldEntry = isEdit ? state.data[dk] && state.data[dk][editingId] : null;
+    const dkLabel = parseDayKey(dk).toLocaleDateString("de-DE", {
+      weekday: "long", day: "numeric", month: "long", year: "numeric"
+    });
+
+    /* Bei „Bearbeiten" ohne tatsächliche Änderung: kurzer Toast statt Confirm. */
+    if (isEdit && !isSheetDirty()) {
+      showToast("Keine Änderungen — nichts zu speichern.", null, null, 2500);
+      return;
+    }
+
+    const summary = buildSaveSummary({
+      isEdit,
+      oldEntry,
+      newValues: {
+        value: v, time: timeDisplay,
+        ort, befinden, begleitung, note
+      },
+      dkLabel
+    });
+
+    const offlineHint = !state.serverConnected
+      ? "Du bist offline — der Eintrag wird lokal gespeichert und automatisch synchronisiert, sobald die Verbindung wieder steht."
+      : null;
+    const timeWarnHint = timeEmpty
+      ? "Du hast keine Uhrzeit angegeben. Der Eintrag wird mit 12:00 Uhr abgelegt."
+      : null;
+    const noteText = [timeWarnHint, offlineHint].filter(Boolean).join("  ·  ") || null;
+
+    openConfirm({
+      title: isEdit ? "Eintrag überschreiben?" : "Neuen Check-in speichern?",
+      bodyHtml: isEdit
+        ? "Die bisherigen Werte werden mit den neuen ersetzt. Du kannst danach jederzeit weiter bearbeiten."
+        : "Bitte prüfe die Werte. Nach dem Speichern erscheint der Eintrag in der Liste dieses Tages.",
+      summaryNode: summary,
+      noteText,
+      confirmLabel: isEdit ? "Änderungen speichern" : "Speichern",
+      danger: isEdit,
+      onConfirm: () => {
+        saveEntry(dk, editingId, v, ts, ort, befinden, begleitung, note);
+        closeSheet();
+      }
+    });
   };
 
   if (exportBtn) exportBtn.addEventListener("click", exportData);
+
+  /* Confirm-Modal: Buttons + Backdrop-Klick. */
+  confirmCancel.addEventListener("click", () => closeConfirm(false));
+  confirmOk.addEventListener("click", () => closeConfirm(true));
+  confirmOverlay.addEventListener("click", (ev) => {
+    if (ev.target === confirmOverlay) closeConfirm(false);
+  });
 
   /* Falls der User die Seite verlässt während ein Soft-Delete schwebt: jetzt committen */
   window.addEventListener("beforeunload", finalizePendingDelete);
@@ -689,8 +1168,42 @@ export function initUi() {
   /* Onboarding (#29) */
   initOnboarding();
 
+  /* Besucher-Vorschau (nur für Admin sichtbar). */
+  initPreviewToggle();
+
   // First paint des Slider-Feel-Anzeige (vor erstem Daten-Render).
   updateFeel();
+}
+
+/* ---------- Besucher-Vorschau (Admin-only Toggle) ----------
+   Erlaubt dem Admin, die App so zu sehen wie ein Besucher-Account.
+   Setzt visuell `body.viewer-mode` und `body.preview-mode` (Banner).
+   Die echte Rolle (`state.currentRole`) bleibt unverändert — der Toggle
+   ist eine reine UI-Vorschau. */
+function initPreviewToggle() {
+  const btn = document.getElementById("previewToggleBtn");
+  const banner = document.getElementById("previewBanner");
+  const exitBtn = document.getElementById("previewExitBtn");
+  if (!btn || !banner || !exitBtn) return;
+
+  const setPreview = (on) => {
+    document.body.classList.toggle("viewer-mode", on);
+    document.body.classList.toggle("preview-mode", on);
+    banner.hidden = !on;
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.textContent = on ? "🚪" : "👁";
+    btn.title = on ? "Besucher-Vorschau verlassen" : "In Besucher-Vorschau umschalten";
+    btn.setAttribute("aria-label", btn.title);
+  };
+
+  btn.addEventListener("click", () => {
+    // Nur Admin darf die Vorschau aktivieren — Sicherheits-Check.
+    if (state.currentRole !== "admin") return;
+    const on = !document.body.classList.contains("preview-mode");
+    setPreview(on);
+  });
+
+  exitBtn.addEventListener("click", () => setPreview(false));
 }
 
 /* ---------- Onboarding (#29) ---------- */
@@ -715,7 +1228,7 @@ const ONBOARDING_SLIDES = [
         <div class="ob-mock-row"><span class="num">3</span><span>Optional: <b>Ort</b>, <b>Befinden</b>, <b>Begleitung</b>, <b>Notiz</b></span></div>
         <div class="ob-mock-row"><span class="num">4</span><span><b>Speichern</b> — fertig in 5 Sekunden</span></div>
       </div>`,
-    body: `Lieber <b>mehrmals kurz</b> einchecken als einmal lang — so erfasst du auch Schwankungen im Tagesverlauf. Du kannst Einträge jederzeit bearbeiten oder löschen.`
+    body: `Lieber <b>mehrmals kurz</b> einchecken als einmal lang — so erfasst du auch Schwankungen im Tagesverlauf. Tippst du in der Einträge-Liste auf einen vorhandenen Eintrag, <b>bearbeitest</b> du ihn — du erstellst nicht automatisch einen neuen. Vor jedem Speichern und Löschen kommt eine Bestätigung mit Zusammenfassung.`
   },
   {
     title: "Was die Stats können — und was nicht",
@@ -1003,4 +1516,6 @@ export function syncSheetAfterRender() {
   populateBefindenChips();
   populateBegleitungChips();
   if (state.selectedDayKey) renderEntryList(state.selectedDayKey);
+  updateModeBanner();
+  refreshDirtyIndicator();
 }

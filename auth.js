@@ -51,7 +51,20 @@ function hideLoginGate() {
 }
 
 function applyRoleUI() {
-  document.body.classList.toggle("viewer-mode", state.currentRole === "viewer");
+  const isAdmin  = state.currentRole === "admin";
+  const isViewer = state.currentRole === "viewer";
+  document.body.classList.toggle("viewer-mode", isViewer);
+  document.body.classList.toggle("is-admin",    isAdmin);
+  /* Vorschau-Button im Header ist nur für Admins sichtbar. */
+  const previewBtn = document.getElementById("previewToggleBtn");
+  if (previewBtn) previewBtn.hidden = !isAdmin;
+  /* Verlässt der Admin die Rolle (Logout / Reload), evtl. aktive
+     Besucher-Vorschau aufräumen. */
+  if (!isAdmin) {
+    document.body.classList.remove("preview-mode");
+    const banner = document.getElementById("previewBanner");
+    if (banner) banner.hidden = true;
+  }
   if (state.currentUser) {
     userBadge.textContent = state.currentUser.email || "";
     userBadge.hidden = false;

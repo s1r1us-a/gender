@@ -55,11 +55,21 @@
         <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
         <button class="header-btn" id="searchBtn" type="button" title="In Notizen suchen" aria-label="Suche öffnen">🔍</button>
         <button class="header-btn" id="helpBtn" type="button" title="Einführung" aria-label="Einführung öffnen">?</button>
+        <button class="header-btn preview-toggle-btn" id="previewToggleBtn" type="button" title="In Besucher-Vorschau umschalten" aria-label="Besucher-Vorschau umschalten" aria-pressed="false" hidden>👁</button>
         <button class="header-btn" id="exportBtn" type="button" title="Daten als JSON exportieren" aria-label="Daten als JSON exportieren">⤓</button>
         <span class="user-badge" id="userBadge" hidden></span>
         <button class="header-btn" id="logoutBtn" type="button" title="Abmelden" aria-label="Abmelden" hidden>⎋</button>
       </div>
     </header>
+
+    <div class="preview-banner" id="previewBanner" hidden role="status" aria-live="polite">
+      <span class="preview-banner-icon" aria-hidden="true">👁</span>
+      <span class="preview-banner-text">
+        <strong>Besucher-Vorschau</strong> — du siehst die App so, wie sie ein eingeloggter Besucher-Account sieht.
+        Schreib-Aktionen sind ausgeblendet.
+      </span>
+      <button type="button" class="btn-link" id="previewExitBtn">← Verlassen</button>
+    </div>
 
     <div class="flag-stripe" aria-hidden="true"></div>
 
@@ -245,6 +255,15 @@
     <h2 id="sheetTitle">Check-in</h2>
     <div class="subtitle" id="sheetSubtitle">Wie fühlst du dich gerade?</div>
     <div class="readonly-hint" id="readonlyHint">Dieser Tag liegt in der Zukunft — Check-ins sind hier nicht möglich.</div>
+    <div class="mode-banner" id="modeBanner" data-mode="new">
+      <span class="mode-icon" id="modeBannerIcon">🆕</span>
+      <span class="mode-text">
+        <span class="mode-title" id="modeBannerTitle">Neuer Eintrag</span>
+        <span class="mode-sub" id="modeBannerSub"></span>
+      </span>
+      <span class="mode-dirty" id="modeBannerDirty" hidden>● ungespeichert</span>
+      <button type="button" class="mode-reset-link" id="modeResetLink" hidden>↺ Original</button>
+    </div>
     <div class="feel">
       <div class="sym-big" id="feelSym">⚧</div>
       <div class="feel-label" id="feelLabel">neutral · fluid</div>
@@ -279,7 +298,7 @@
     </div>
     <div class="time-row">
       <label for="timeInput">Uhrzeit</label>
-      <input type="time" id="timeInput" />
+      <input type="time" id="timeInput" placeholder="HH:MM" />
       <button class="now-btn" id="nowBtn" type="button">Jetzt</button>
     </div>
     <div class="actions">
@@ -288,7 +307,24 @@
     </div>
     <div class="entries">
       <h3 id="entriesTitle">Einträge dieses Tages</h3>
+      <div class="entry-reset-row" id="entryResetRow" hidden>
+        <button type="button" class="btn-link" id="newEntryBtn">➕ Neuen Eintrag anlegen</button>
+        <span class="entry-reset-hint">Du bearbeitest gerade. Hier zurück zu einem neuen Eintrag.</span>
+      </div>
       <div class="entry-list" id="entryList"></div>
+    </div>
+  </div>
+
+  <!-- Confirm-Overlay (Save, Delete, Discard) -->
+  <div class="confirm-overlay" id="confirmOverlay" hidden role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmBody">
+    <div class="confirm-card">
+      <h2 id="confirmTitle" class="confirm-title">Bestätigen?</h2>
+      <div id="confirmBody" class="confirm-body"></div>
+      <div class="confirm-note" id="confirmNote" hidden></div>
+      <div class="confirm-actions">
+        <button type="button" class="btn btn-ghost" id="confirmCancel">Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="confirmOk">Bestätigen</button>
+      </div>
     </div>
   </div>
 
