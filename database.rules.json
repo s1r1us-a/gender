@@ -1,0 +1,35 @@
+{
+  "rules": {
+    "checkins": {
+      ".read":  "auth != null && (auth.token.email == 'raederich@outlook.com' || auth.token.email == 'nele.busse@web.de')",
+      "$day": {
+        ".validate": "$day.matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)",
+        "$entry": {
+          ".write": "auth != null && auth.token.email == 'raederich@outlook.com'",
+          ".validate": "newData.hasChildren(['value', 'ts'])",
+          "value": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100" },
+          "ts":    { ".validate": "newData.isNumber() && newData.val() > 0" },
+          "ort":   { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" },
+          "note":  { ".validate": "newData.isString() && newData.val().length <= 240" },
+          "befinden": {
+            ".validate": "newData.isString() ? (newData.val().length > 0 && newData.val().length <= 60) : true",
+            "$tag": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" }
+          },
+          "begleitung": {
+            ".validate": "newData.isString() ? (newData.val().length > 0 && newData.val().length <= 60) : true",
+            "$tag": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" }
+          },
+          "$other": { ".validate": false }
+        }
+      }
+    },
+    "meta": {
+      "users": {
+        "$uid": {
+          ".read":  "auth != null && auth.uid == $uid",
+          ".write": "auth != null && auth.uid == $uid"
+        }
+      }
+    }
+  }
+}
