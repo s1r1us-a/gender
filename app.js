@@ -2,6 +2,12 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getDatabase, ref, onValue, push, update, remove
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import {
+  dayKey, parseDayKey,
+  avg, stddev, median, percentile, bucket,
+  computeStats, computeCoverage, computePeriodAggregates, computeFluidityIndex,
+  computeBuckets, computeWeekdayMedians
+} from "./stats.js";
 
 // HINWEIS: Damit Lesen/Schreiben funktioniert müssen die Realtime-DB-Regeln in der
 // Firebase-Console entsprechend gesetzt sein. Die Daten sind persönlicher Natur –
@@ -80,50 +86,48 @@ function valueToHeroSymbol(v) {
 function valueToLabel(v) {
   return SCALE[scaleIndexFromValue(v)].label;
 }
-function bucket(v) {
-  if (v <= 33) return "f";
-  if (v <= 66) return "n";
-  return "m";
-}
-function dayKey(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,"0");
-  const day = String(d.getDate()).padStart(2,"0");
-  return `${y}-${m}-${day}`;
-}
-function parseDayKey(k) {
-  const [y,m,d] = k.split("-").map(Number);
-  return new Date(y, m-1, d);
-}
 function pad(n){return String(n).padStart(2,"0");}
 function fmtTime(ts){
   const d = new Date(ts);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-function avg(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
-function stddev(arr){
-  if (arr.length < 2) return 0;
-  const m = avg(arr);
-  return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length);
-}
-function median(arr){
-  if (!arr.length) return null;
-  const s = [...arr].sort((a,b)=>a-b);
-  const mid = Math.floor(s.length/2);
-  return s.length % 2 ? s[mid] : (s[mid-1] + s[mid]) / 2;
-}
-function percentile(arr, p){
-  if (!arr.length) return null;
-  const s = [...arr].sort((a,b)=>a-b);
-  const idx = (s.length - 1) * (p/100);
-  const lo = Math.floor(idx), hi = Math.ceil(idx);
-  if (lo === hi) return s[lo];
-  return s[lo] + (s[hi] - s[lo]) * (idx - lo);
-}
 function setText(id, t){ const el = document.getElementById(id); if(el) el.textContent = t; }
 
 /* ---------- State ---------- */
-let DATA = {};            // {dayKey: {pushId: {value, ts}}}
+
+/**
+ * @typedef {Object} Entry
+ * @property {number} value      Slider-Wert auf 0–100-Achse
+ * @property {number} ts         Unix-ms beim Erfassen
+ * @property {string} [ort]      Tag „Ort" (was/wer/wo)
+ * @property {string} [befinden] Tag „Befinden" (wie gefühlt)
+ * @property {string} [note]     Freitext
+ * @property {string} [situation] Legacy: wird über `ort` gelesen, beim Edit entfernt
+ */
+/**
+ * @typedef {Object} PendingPush
+ * @property {"push"} op
+ * @property {string} dk
+ * @property {string} tempId
+ * @property {Entry} payload
+ */
+/**
+ * @typedef {Object} PendingUpdate
+ * @property {"update"} op
+ * @property {string} dk
+ * @property {string} entryId
+ * @property {Object} payload   Teil-Entry; `null`-Felder bedeuten Lösch-Signal
+ */
+/**
+ * @typedef {Object} PendingDelete
+ * @property {"delete"} op
+ * @property {string} dk
+ * @property {string} entryId
+ */
+/** @typedef {PendingPush | PendingUpdate | PendingDelete} PendingOp */
+
+/** @type {Record<string, Record<string, Entry>>} dayKey → entryId → Entry */
+let DATA = {};
 let viewDate = new Date();// month being shown
 let selectedDayKey = null;
 let editingEntryId = null;
@@ -151,7 +155,8 @@ function savePending() {
   try { localStorage.setItem(LS_PENDING, JSON.stringify(pendingQueue)); } catch {}
 }
 
-let pendingQueue = loadPending();   // [{ tempId?, op, dk, entryId?, payload? }]
+/** @type {PendingOp[]} */
+let pendingQueue = loadPending();
 let serverConnected = false;
 let dbError = false;
 let flushTimer = null;
@@ -599,7 +604,24 @@ function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
         if (cleanNote) p.payload.note = cleanNote;
       }
     } else {
-      pendingQueue.push({ op: "update", dk, entryId, payload: updatePayload });
+      // Wenn für denselben Eintrag schon ein `delete` in der Queue steht,
+      // ergibt ein Update keinen Sinn — der delete würde sowieso gewinnen.
+      // (In der UI eigentlich unerreichbar, aber defensiv.)
+      const hasPendingDelete = pendingQueue.some(
+        q => q.op === "delete" && q.entryId === entryId && q.dk === dk
+      );
+      if (!hasPendingDelete) {
+        // Aufeinanderfolgende Updates für denselben Eintrag in eine Op mergen,
+        // statt N Ops zu queuen — spart Roundtrips beim Offline-Editieren.
+        const prev = pendingQueue.find(
+          q => q.op === "update" && q.entryId === entryId && q.dk === dk
+        );
+        if (prev) {
+          prev.payload = { ...prev.payload, ...updatePayload };
+        } else {
+          pendingQueue.push({ op: "update", dk, entryId, payload: updatePayload });
+        }
+      }
     }
   } else {
     // Neu anlegen
@@ -773,109 +795,9 @@ document.getElementById("saveBtn").onclick = () => {
   closeSheet();
 };
 
-/* ---------- Statistics ---------- */
-function computeStats() {
-  const dayKeys = Object.keys(DATA).sort();
-  const dayAvgs = {};      // dk -> avg
-  const dayCounts = {};    // dk -> Einträge an dem Tag
-  const daySwings = {};    // dk -> max - min innerhalb des Tages (nur N >= 2)
-  const allEntries = [];   // {dk, value, ts, ort, befinden}
-  const byOrt = {};        // name -> { sum, count }
-  const byBefinden = {};   // name -> { sum, count }
-  /* Kombinations-Matrix für Korrelation Ort × Befinden.
-     Schlüssel: "<ort>␟<befinden>" (Unit-Separator als sicherer Trenner,
-     kann in Tag-Namen nicht vorkommen). */
-  const byCombo = {};      // key -> { ort, befinden, sum, count }
-  const addTo = (bucketMap, name, v) => {
-    if (!name) return;
-    if (!bucketMap[name]) bucketMap[name] = { sum: 0, count: 0 };
-    bucketMap[name].sum += v;
-    bucketMap[name].count += 1;
-  };
-  for (const dk of dayKeys) {
-    const vals = [];
-    for (const id in DATA[dk]) {
-      const e = DATA[dk][id];
-      const v = Number(e.value);
-      if (isNaN(v)) continue;
-      vals.push(v);
-      // Ort liest legacy `situation` mit, solange alte Einträge nicht migriert sind.
-      const ort = (e.ort ?? e.situation ?? "").trim();
-      const befinden = (e.befinden || "").trim();
-      allEntries.push({ dk, id, value: v, ts: e.ts, ort, befinden });
-      addTo(byOrt, ort, v);
-      addTo(byBefinden, befinden, v);
-      if (ort && befinden) {
-        const key = ort + "␟" + befinden;
-        if (!byCombo[key]) byCombo[key] = { ort, befinden, sum: 0, count: 0 };
-        byCombo[key].sum += v;
-        byCombo[key].count += 1;
-      }
-    }
-    if (vals.length) {
-      dayAvgs[dk] = avg(vals);
-      dayCounts[dk] = vals.length;
-      if (vals.length >= 2) daySwings[dk] = Math.max(...vals) - Math.min(...vals);
-    }
-  }
-  return {
-    dayAvgs, dayCounts, daySwings,
-    allEntries, byOrt, byBefinden, byCombo,
-    dayKeys: Object.keys(dayAvgs).sort()
-  };
-}
-
-/* Tracking-Coverage: wie konsequent wird seit dem ersten Eintrag erfasst.
-   Gibt {firstKey, daysSinceFirst, trackedDays, coveragePct, longestGap, gapDk}. */
-function computeCoverage(stats) {
-  const keys = stats.dayKeys;
-  if (!keys.length) return null;
-  const firstKey = keys[0];
-  const first = parseDayKey(firstKey);
-  const todayMid = new Date(); todayMid.setHours(0,0,0,0);
-  const daysSinceFirst = Math.round((todayMid - first) / 86400000) + 1;
-  const trackedDays = keys.length;
-  const coveragePct = daysSinceFirst > 0 ? (trackedDays / daysSinceFirst) * 100 : 0;
-  // Längste Lücke zwischen zwei aufeinander folgenden erfassten Tagen
-  let longestGap = 0, gapDk = null;
-  for (let i = 1; i < keys.length; i++) {
-    const prev = parseDayKey(keys[i-1]);
-    const cur = parseDayKey(keys[i]);
-    const gap = Math.round((cur - prev) / 86400000) - 1;
-    if (gap > longestGap) { longestGap = gap; gapDk = keys[i]; }
-  }
-  // Auch: aktuelle Lücke (letzter Eintrag bis heute), falls relevanter
-  const lastKey = keys[keys.length - 1];
-  const lastDate = parseDayKey(lastKey);
-  const currentGap = Math.max(0, Math.round((todayMid - lastDate) / 86400000));
-  return { firstKey, daysSinceFirst, trackedDays, coveragePct, longestGap, gapDk, currentGap };
-}
-
-/* Zeitliche Aggregate für Heute/Woche/Monat/Spektrum bündeln.
-   Wichtig: weekAgo/monthAgo werden auf Mitternacht normiert, sonst fällt
-   der älteste Tag aus dem Fenster, weil parseDayKey ebenfalls Mitternacht
-   ist und der jetzt-Zeitstempel später am Tag liegt (Off-by-one). */
-function computePeriodAggregates(stats) {
-  const today = dayKey(new Date());
-  const todayAvg = stats.dayAvgs[today] ?? null;
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6); weekAgo.setHours(0,0,0,0);
-  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate()-29); monthAgo.setHours(0,0,0,0);
-
-  const weekAvgs = [], monthAvgs = [];
-  for (const dk in stats.dayAvgs) {
-    const d = parseDayKey(dk);
-    if (d >= weekAgo) weekAvgs.push(stats.dayAvgs[dk]);
-    if (d >= monthAgo) monthAvgs.push(stats.dayAvgs[dk]);
-  }
-  const allDayAvgs = Object.values(stats.dayAvgs);
-  return {
-    today, todayAvg,
-    week: avg(weekAvgs), weekDays: weekAvgs.length,
-    month: avg(monthAvgs), monthDays: monthAvgs.length,
-    allDayAvgs,
-    trackedDays: stats.dayKeys.length
-  };
-}
+/* ---------- Statistics ----------
+   Compute-Funktionen leben in stats.js (rein, testbar). Hier nur die
+   Renderer, die DOM, Farben und HTML-Template-Strings produzieren. */
 
 function renderOverviewBars(stats) {
   const agg = computePeriodAggregates(stats);
@@ -1026,37 +948,6 @@ function renderHeroToday(stats) {
   if (btn) btn.onclick = () => openSheet(dayKey(new Date()));
 }
 
-function computeFluidityIndex(stats) {
-  const dayVals = Object.values(stats.dayAvgs);
-  const entryVals = stats.allEntries.map(e => e.value);
-  if (entryVals.length < 2) return { score: null, sdEntries: 0, sdDays: 0, label: "noch zu wenig Daten" };
-  // σ über alle Check-ins (erfasst auch Intra-Day-Swings — der eigentliche
-  // Kern von "fluid"). σ_Tage bleibt sekundär für Tag-zu-Tag-Schwankung.
-  const sdEntries = stddev(entryVals);
-  const sdDays = dayVals.length >= 2 ? stddev(dayVals) : 0;
-  /* Kalibrierung gegen die 7-stufige Skala {0,17,33,50,67,83,100}:
-     - Pendeln 33↔67 (eine Stufe um Neutral) ergibt σ≈17 → ~"fluid".
-     - Pendeln 17↔83 ergibt σ≈33 → "extrem fluid".
-     - Theoretisches Max 0↔100 ergibt σ=50, score sättigt auf 100.
-     Vorher war der Divisor 25 (Skala sättigte schon bei moderater
-     Streuung), davor 50 (obere Labels unerreichbar) — 35 trifft die
-     Mitte und passt zur intuitiven Selbstwahrnehmung. */
-  const score = Math.max(0, Math.min(100, Math.round(sdEntries / 35 * 100)));
-  // Bei wenig Daten ist σ statistisch nicht belastbar — Label zurückhalten,
-  // damit ein paar explorative Klicks an den Spektrum-Enden nicht sofort
-  // "extrem fluid" suggerieren. Score-Zahl darf trotzdem gezeigt werden.
-  if (entryVals.length < 7 || dayVals.length < 3) {
-    return { score, sdEntries, sdDays, label: "noch zu wenig Daten", lowConfidence: true };
-  }
-  let label;
-  if (score <= 20)      label = "sehr stabil";
-  else if (score <= 40) label = "leicht fluid";
-  else if (score <= 60) label = "fluid";
-  else if (score <= 80) label = "sehr fluid";
-  else                  label = "extrem fluid";
-  return { score, sdEntries, sdDays, label };
-}
-
 function renderFluidityIndex(stats) {
   const f = computeFluidityIndex(stats);
   const container = document.getElementById("fluidityRow");
@@ -1131,32 +1022,17 @@ function renderSpectrumHistogram(stats) {
 }
 
 function renderBuckets(stats) {
-  let f=0,n=0,m=0;
-  for (const v of Object.values(stats.dayAvgs)) {
-    const b = bucket(v);
-    if (b==="f") f++; else if (b==="n") n++; else m++;
-  }
-  const total = f+n+m || 1;
+  const b = computeBuckets(stats);
   const bar = document.getElementById("bucketBar");
-  bar.children[0].style.width = (f/total*100)+"%";
-  bar.children[1].style.width = (n/total*100)+"%";
-  bar.children[2].style.width = (m/total*100)+"%";
-  setText("lbWF", `weiblich · ${Math.round(f/total*100)}% (${f}d)`);
-  setText("lbFL", `fluid · ${Math.round(n/total*100)}% (${n}d)`);
-  setText("lbML", `männlich · ${Math.round(m/total*100)}% (${m}d)`);
+  bar.children[0].style.width = b.pctF + "%";
+  bar.children[1].style.width = b.pctN + "%";
+  bar.children[2].style.width = b.pctM + "%";
+  setText("lbWF", `weiblich · ${Math.round(b.pctF)}% (${b.f}d)`);
+  setText("lbFL", `fluid · ${Math.round(b.pctN)}% (${b.n}d)`);
+  setText("lbML", `männlich · ${Math.round(b.pctM)}% (${b.m}d)`);
 
-  // Swatches
-  const today = dayKey(new Date());
-  const todayAvg = stats.dayAvgs[today];
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6); weekAgo.setHours(0,0,0,0);
-  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate()-29); monthAgo.setHours(0,0,0,0);
-  const weekVals=[], monthVals=[];
-  for (const dk in stats.dayAvgs) {
-    const d = parseDayKey(dk);
-    if (d >= weekAgo) weekVals.push(stats.dayAvgs[dk]);
-    if (d >= monthAgo) monthVals.push(stats.dayAvgs[dk]);
-  }
-  const all = avg(Object.values(stats.dayAvgs));
+  // Swatches Heute/Woche/Monat/All-Time aus den Period-Aggregaten
+  const agg = computePeriodAggregates(stats);
   function sw(label, v) {
     if (v == null || isNaN(v)) return `<div class="swatch" style="background:#2a1a44;color:#9b8fb5">
         <div class="swatch-label">${label}</div>
@@ -1169,10 +1045,10 @@ function renderBuckets(stats) {
     </div>`;
   }
   document.getElementById("swatches").innerHTML = [
-    sw("Heute", todayAvg),
-    sw("Woche", avg(weekVals)),
-    sw("Monat", avg(monthVals)),
-    sw("All-Time", all)
+    sw("Heute", agg.todayAvg),
+    sw("Woche", agg.week),
+    sw("Monat", agg.month),
+    sw("All-Time", agg.allAvg)
   ].join("");
 }
 
@@ -1308,27 +1184,18 @@ function renderWeekdays(stats) {
   /* Median statt Ø: robuster gegen einzelne Outlier-Tage, vor allem bei
      niedrigem N. Bei N=1 fällt Median = der eine Wert; das ist OK, aber
      wir markieren es visuell als "wenig Daten" (low-confidence). */
-  const names = ["Mo","Di","Mi","Do","Fr","Sa","So"];
-  const buckets = Array.from({length:7}, () => []);
-  for (const dk in stats.dayAvgs) {
-    const d = parseDayKey(dk);
-    const w = (d.getDay()+6)%7;
-    buckets[w].push(stats.dayAvgs[dk]);
-  }
+  const days = computeWeekdayMedians(stats);
   const row = document.getElementById("weekdayRow");
   row.innerHTML = "";
-  for (let i=0;i<7;i++) {
-    const vals = buckets[i];
-    const v = vals.length ? median(vals) : null;
-    const c = v != null ? valueToColor(v) : null;
-    const lowN = vals.length > 0 && vals.length < 3;
+  for (const day of days) {
+    const c = day.median != null ? valueToColor(day.median) : null;
     const div = document.createElement("div");
-    div.className = "wd" + (lowN ? " wd-low" : "");
+    div.className = "wd" + (day.lowN ? " wd-low" : "");
     div.innerHTML = `
-      <div class="n">${names[i]}</div>
-      <div class="v" style="${c?`color:${c.hex}`:''}">${v!=null?v.toFixed(1):"—"}</div>
+      <div class="n">${day.name}</div>
+      <div class="v" style="${c?`color:${c.hex}`:''}">${day.median!=null?day.median.toFixed(1):"—"}</div>
       <div class="sw" style="background:${c?c.hex:'rgba(255,255,255,0.06)'}"></div>
-      <div class="wd-n" title="${vals.length} Tag${vals.length===1?"":"e"} erfasst">n=${vals.length}</div>
+      <div class="wd-n" title="${day.n} Tag${day.n===1?"":"e"} erfasst">n=${day.n}</div>
     `;
     row.appendChild(div);
   }
@@ -1799,7 +1666,7 @@ function applyMoodBackground(stats) {
 
 function renderAll() {
   renderGrid();
-  const stats = computeStats();
+  const stats = computeStats(DATA);
   applyMoodBackground(stats);
   renderHeroToday(stats);
   renderOverviewBars(stats);
