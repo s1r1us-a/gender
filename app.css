@@ -1380,6 +1380,39 @@
   /* Zukunftstage: Cursor signalisiert „nicht erlaubt" */
   .cell.future { cursor: not-allowed; }
 
+  /* Karten mit `.viewer-blur` werden für Besucher-Accounts (und in der
+     Admin-Vorschau) komplett geblurrt — Inhalt bleibt nur als Schemen
+     sichtbar, ein 🔒-Overlay macht klar, dass das Absicht ist. */
+  body.viewer-mode .viewer-blur {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  body.viewer-mode .viewer-blur > * {
+    filter: blur(10px);
+    pointer-events: none;
+    user-select: none;
+  }
+  body.viewer-mode .viewer-blur::after {
+    content: "🔒  Privat — nur für Account-Inhaber sichtbar";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px;
+    color: var(--text);
+    font-size: 14px; font-weight: 700;
+    letter-spacing: 0.2px;
+    background: rgba(12, 6, 22, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    border-radius: inherit;
+    z-index: 1;
+    pointer-events: none;
+  }
+
   /* Besucher-Vorschau (nur Admin sichtbar). Toggle-Button bleibt
      SICHTBAR im Vorschau-Modus (sonst wäre kein Exit möglich), während
      andere Schreib-UI durch die normalen viewer-mode-Regeln verschwindet. */
