@@ -179,6 +179,177 @@ export function computeBuckets(stats) {
   };
 }
 
+/* ---------- Zeitfenster-Filter (#8) ----------
+   Filtert die Roh-DATA-Struktur (dayKey → entryId → Entry) auf einen
+   Zeitraum. Cutoff inkludiert "heute" + (days-1) Vortage. */
+export function filterDataByRange(data, range, now = new Date()) {
+  if (!range || range === "all") return data;
+  const days = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }[range];
+  if (!days) return data;
+  const cutoff = new Date(now);
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - (days - 1));
+  const out = {};
+  for (const dk in data) {
+    if (parseDayKey(dk) >= cutoff) out[dk] = data[dk];
+  }
+  return out;
+}
+
+/* ---------- Übergangswahrscheinlichkeiten (#11) ----------
+   3×3-Markov-Matrix: Bucket-Übergänge zwischen aufeinanderfolgenden
+   Tagen. counts[i][j] = wie oft folgte auf Bucket i Bucket j am
+   direkten Folgetag. Nicht-zusammenhängende Tage werden übersprungen. */
+const BUCKETS = ["f", "n", "m"];
+export function computeTransitions(stats) {
+  const counts = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const keys = stats.dayKeys;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const today = parseDayKey(keys[i]);
+    const next = parseDayKey(keys[i + 1]);
+    // Math.round schützt gegen DST-Drift
+    if (Math.round((next - today) / 86400000) !== 1) continue;
+    const r = BUCKETS.indexOf(bucket(stats.dayAvgs[keys[i]]));
+    const c = BUCKETS.indexOf(bucket(stats.dayAvgs[keys[i + 1]]));
+    if (r < 0 || c < 0) continue;
+    counts[r][c]++;
+  }
+  const rowTotals = counts.map(row => row.reduce((a, b) => a + b, 0));
+  const probs = counts.map((row, r) => {
+    const tot = rowTotals[r];
+    return row.map(c => tot > 0 ? c / tot : null);
+  });
+  const total = rowTotals.reduce((a, b) => a + b, 0);
+  return { counts, rowTotals, probs, total };
+}
+
+/* ---------- Insight-Detektoren (#17) ----------
+   Reine Funktionen, die Muster im Stats-Objekt erkennen. Geben
+   strukturierte Daten zurück (kein Text), damit der Renderer die
+   Sprache übernimmt und die Detektoren testbar bleiben. */
+
+/* Orte/Befinden, die innerhalb der letzten `windowDays` erstmals auftauchen. */
+export function detectFirstSeenTag(stats, tagField, windowDays = 14, now = new Date()) {
+  const cutoff = new Date(now);
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - (windowDays - 1));
+  const cutoffMs = cutoff.getTime();
+  const earliest = {};
+  const countInWindow = {};
+  let valueSumInWindow = {};
+  for (const e of stats.allEntries) {
+    const tag = (e[tagField] || "").trim();
+    if (!tag) continue;
+    if (!Number.isFinite(e.ts)) continue;
+    if (earliest[tag] == null || e.ts < earliest[tag]) earliest[tag] = e.ts;
+    if (e.ts >= cutoffMs) {
+      countInWindow[tag] = (countInWindow[tag] || 0) + 1;
+      valueSumInWindow[tag] = (valueSumInWindow[tag] || 0) + e.value;
+    }
+  }
+  const out = [];
+  for (const tag in earliest) {
+    if (earliest[tag] >= cutoffMs) {
+      const n = countInWindow[tag] || 0;
+      out.push({
+        name: tag,
+        count: n,
+        avg: n ? valueSumInWindow[tag] / n : null,
+        firstTs: earliest[tag]
+      });
+    }
+  }
+  // Häufigster zuerst.
+  out.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "de"));
+  return out;
+}
+
+/* Ort×Befinden-Kombos, die innerhalb der letzten `windowDays` erstmals
+   auftauchen. */
+export function detectFirstSeenCombo(stats, windowDays = 14, now = new Date()) {
+  const cutoff = new Date(now);
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - (windowDays - 1));
+  const cutoffMs = cutoff.getTime();
+  const earliest = {};
+  const counts = {};
+  for (const e of stats.allEntries) {
+    const ort = (e.ort || "").trim();
+    const bef = (e.befinden || "").trim();
+    if (!ort || !bef) continue;
+    if (!Number.isFinite(e.ts)) continue;
+    const key = ort + "␟" + bef;
+    if (earliest[key] == null || e.ts < earliest[key]) earliest[key] = e.ts;
+    if (e.ts >= cutoffMs) counts[key] = (counts[key] || 0) + 1;
+  }
+  const out = [];
+  for (const key in earliest) {
+    if (earliest[key] >= cutoffMs) {
+      const [ort, bef] = key.split("␟");
+      out.push({ ort, befinden: bef, count: counts[key] || 0, firstTs: earliest[key] });
+    }
+  }
+  out.sort((a, b) => b.count - a.count);
+  return out;
+}
+
+/* Befinden-Tags, deren Frequenz im letzten Fenster <50% des
+   vorherigen Fensters ist (jeweils 30 Tage, vorheriges Fenster ≥5
+   Vorkommen). */
+export function detectDecliningTag(stats, tagField, windowDays = 30, minPriorCount = 5, now = new Date()) {
+  const cutoffRecent = new Date(now);
+  cutoffRecent.setHours(0, 0, 0, 0);
+  cutoffRecent.setDate(cutoffRecent.getDate() - (windowDays - 1));
+  const cutoffPrior = new Date(cutoffRecent);
+  cutoffPrior.setDate(cutoffPrior.getDate() - windowDays);
+  const recentMs = cutoffRecent.getTime();
+  const priorMs = cutoffPrior.getTime();
+  const recent = {};
+  const prior = {};
+  for (const e of stats.allEntries) {
+    const tag = (e[tagField] || "").trim();
+    if (!tag) continue;
+    if (!Number.isFinite(e.ts)) continue;
+    if (e.ts >= recentMs) recent[tag] = (recent[tag] || 0) + 1;
+    else if (e.ts >= priorMs) prior[tag] = (prior[tag] || 0) + 1;
+  }
+  const out = [];
+  for (const tag in prior) {
+    if (prior[tag] < minPriorCount) continue;
+    const r = recent[tag] || 0;
+    if (r >= prior[tag] * 0.5) continue;
+    const drop = 1 - r / prior[tag];
+    out.push({ name: tag, recent: r, prior: prior[tag], drop });
+  }
+  out.sort((a, b) => b.drop - a.drop);
+  return out;
+}
+
+/* True, wenn σ der Tagesmittelwerte im jüngsten Fenster <50% des
+   vorhergehenden Fensters ist (jeweils min `minDays` Tage). */
+export function detectRangeShrinking(stats, windowDays = 14, minDays = 7, now = new Date()) {
+  const cutoffRecent = new Date(now);
+  cutoffRecent.setHours(0, 0, 0, 0);
+  cutoffRecent.setDate(cutoffRecent.getDate() - (windowDays - 1));
+  const cutoffPrior = new Date(cutoffRecent);
+  cutoffPrior.setDate(cutoffPrior.getDate() - windowDays);
+  const recent = [];
+  const prior = [];
+  for (const dk in stats.dayAvgs) {
+    const d = parseDayKey(dk);
+    if (d >= cutoffRecent) recent.push(stats.dayAvgs[dk]);
+    else if (d >= cutoffPrior) prior.push(stats.dayAvgs[dk]);
+  }
+  if (recent.length < minDays || prior.length < minDays) {
+    return { found: false, recentDays: recent.length, priorDays: prior.length };
+  }
+  const sdRecent = stddev(recent);
+  const sdPrior = stddev(prior);
+  if (sdPrior <= 0) return { found: false, sdRecent, sdPrior };
+  const found = sdRecent < sdPrior * 0.5;
+  return { found, sdRecent, sdPrior, recentDays: recent.length, priorDays: prior.length };
+}
+
 /* Wochentag-Mediane (Mo–So, Mo=0). */
 const WEEKDAY_NAMES = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 export function computeWeekdayMedians(stats) {
