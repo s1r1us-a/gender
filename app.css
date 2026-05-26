@@ -322,14 +322,14 @@
     padding: 22px;
     position: relative;
     isolation: isolate;
-    border: 3px solid rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.85);
+    border: 4px solid rgb(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208));
     box-shadow:
-      0 0 0 1px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.35),
-      0 14px 44px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.30),
-      inset 0 0 60px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.10);
+      0 0 0 1px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.55),
+      0 14px 44px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.38),
+      inset 0 0 60px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.14);
     background:
-      radial-gradient(120% 80% at 0% 0%, rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.10), transparent 55%),
-      radial-gradient(120% 80% at 100% 100%, rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.08), transparent 55%),
+      radial-gradient(120% 80% at 0% 0%, rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.14), transparent 55%),
+      radial-gradient(120% 80% at 100% 100%, rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.10), transparent 55%),
       var(--card-bg, rgba(255,255,255,0.04));
     animation: hero-pulse 3.4s ease-in-out infinite;
     transition: border-color .8s ease, box-shadow .8s ease;
@@ -350,15 +350,15 @@
   @keyframes hero-pulse {
     0%, 100% {
       box-shadow:
-        0 0 0 1px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.35),
-        0 14px 44px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.30),
-        inset 0 0 60px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.10);
+        0 0 0 1px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.55),
+        0 14px 44px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.38),
+        inset 0 0 60px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.14);
     }
     50% {
       box-shadow:
-        0 0 0 2px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.55),
-        0 22px 70px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.55),
-        inset 0 0 90px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.18);
+        0 0 0 2px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.85),
+        0 22px 70px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.65),
+        inset 0 0 90px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.24);
     }
   }
   @keyframes hero-aurora {
@@ -391,29 +391,37 @@
     0%, 100% { transform: rotate(-3deg); }
     50%      { transform: rotate(3deg); }
   }
-  /* Eingeloggter Wert (Zahl) bekommt einen leichten Color-Sweep. */
+  /* Zahl in voller Mood-Farbe (überschreibt den Inline-color aus render.js
+     mit der gleichen Farbe, aber mit Glow für mehr Sichtbarkeit). */
   .hero-value .num {
-    background: linear-gradient(120deg,
-      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 1.0) 0%,
-      rgba(255,255,255,0.95) 50%,
-      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 1.0) 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    animation: hero-num-shimmer 5.5s ease-in-out infinite;
+    color: rgb(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208)) !important;
+    text-shadow:
+      0 0 18px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.65),
+      0 0 36px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.30);
   }
-  @keyframes hero-num-shimmer {
-    0%, 100% { background-position: 0% 50%; }
-    50%      { background-position: 100% 50%; }
+  /* Labels und Trend-Text in der Mood-Farbe (etwas heller/transparenter). */
+  .hero-eyebrow {
+    color: rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.95) !important;
+  }
+  .hero-value .lbl {
+    color: rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.95) !important;
+  }
+  .hero-trend {
+    color: rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.85) !important;
+  }
+  .hero-trend .arrow {
+    color: rgb(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208)) !important;
+  }
+  /* Auch im Empty-State (kein Check-in heute): Titel + Sub farbig. */
+  .hero-empty .hero-empty-title {
+    color: rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.95);
   }
   /* Barrierefreiheit: Reduced-Motion-User bekommen den Rand, aber keine
      Bewegungs-Animationen. */
   @media (prefers-reduced-motion: reduce) {
     .hero-card,
     .hero-card::after,
-    .hero-sym,
-    .hero-value .num { animation: none !important; }
+    .hero-sym { animation: none !important; }
   }
   .hero-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .hero-eyebrow {
