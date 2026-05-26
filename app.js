@@ -1034,11 +1034,20 @@ function computeFluidityIndex(stats) {
   // Kern von "fluid"). σ_Tage bleibt sekundär für Tag-zu-Tag-Schwankung.
   const sdEntries = stddev(entryVals);
   const sdDays = dayVals.length >= 2 ? stddev(dayVals) : 0;
-  /* Empirische Kalibrierung: σ=25 entspricht in der Praxis "sehr stark
-     schwankend"; ein theoretisches Maximum von σ=50 (oszillierende
-     0/100-Werte) ist real nie erreicht und ließ die alten Labels
-     "sehr fluid"/"extrem fluid" unerreichbar. */
-  const score = Math.max(0, Math.min(100, Math.round(sdEntries / 25 * 100)));
+  /* Kalibrierung gegen die 7-stufige Skala {0,17,33,50,67,83,100}:
+     - Pendeln 33↔67 (eine Stufe um Neutral) ergibt σ≈17 → ~"fluid".
+     - Pendeln 17↔83 ergibt σ≈33 → "extrem fluid".
+     - Theoretisches Max 0↔100 ergibt σ=50, score sättigt auf 100.
+     Vorher war der Divisor 25 (Skala sättigte schon bei moderater
+     Streuung), davor 50 (obere Labels unerreichbar) — 35 trifft die
+     Mitte und passt zur intuitiven Selbstwahrnehmung. */
+  const score = Math.max(0, Math.min(100, Math.round(sdEntries / 35 * 100)));
+  // Bei wenig Daten ist σ statistisch nicht belastbar — Label zurückhalten,
+  // damit ein paar explorative Klicks an den Spektrum-Enden nicht sofort
+  // "extrem fluid" suggerieren. Score-Zahl darf trotzdem gezeigt werden.
+  if (entryVals.length < 7 || dayVals.length < 3) {
+    return { score, sdEntries, sdDays, label: "noch zu wenig Daten", lowConfidence: true };
+  }
   let label;
   if (score <= 20)      label = "sehr stabil";
   else if (score <= 40) label = "leicht fluid";
@@ -1070,6 +1079,21 @@ function renderFluidityIndex(stats) {
   const intraNote = avgSwing != null
     ? `<div class="fluidity-intra">Ø Schwankung <b>innerhalb eines Tages</b>: ${avgSwing.toFixed(0)} Punkte (aus ${swings.length} Tagen mit mehreren Check-ins).</div>`
     : `<div class="fluidity-intra">Erfasse mehrmals pro Tag, um die Schwankung <b>innerhalb eines Tages</b> sichtbar zu machen.</div>`;
+  if (f.lowConfidence) {
+    container.innerHTML = `
+      <div class="fluidity-score">
+        <div class="num">${f.score}</div>
+        <div class="lbl">noch zu wenig Daten</div>
+        <div class="sub">${sub}</div>
+        <div class="meter"><div style="width:${f.score}%"></div></div>
+      </div>
+      <div class="fluidity-explain">
+        Der <b>Fluiditäts-Index</b> berechnet sich bereits, ist bei wenigen Check-ins aber statistisch wackelig.
+        Erfasse über mindestens 3 Tage und ~7 Check-ins, dann ordnen wir den Wert ein.
+        ${intraNote}
+      </div>`;
+    return;
+  }
   container.innerHTML = `
     <div class="fluidity-score">
       <div class="num">${f.score}</div>
