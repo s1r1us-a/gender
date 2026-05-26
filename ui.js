@@ -8,7 +8,7 @@ import { dayKey, parseDayKey } from "./stats.js";
 import {
   SCALE, scaleIndexFromValue,
   valueToColor, valueToSymbol, valueToLabel,
-  pad, fmtTime, escapeHtml
+  pad, fmtTime, escapeHtml, normalizeTags
 } from "./format.js";
 
 /* ---------- Haptik (#37) ----------
@@ -36,9 +36,17 @@ let backdrop, sheet, slider;
 let feelSym, feelLabel, feelVal;
 let timeInput, sheetTitle, sheetSubtitle;
 let entryList, entriesTitle;
-let ortSelect, ortInput, befindenSelect, befindenInput;
+let ortSelect, ortInput;
+let befindenChips, befindenNewInput;
+let begleitungChips, begleitungNewInput;
 let sliderTicks, noteInput, noteCount;
 let exportBtn;
+
+/* Aktuelle Mehrfach-Auswahl im offenen Sheet. Wird beim Öffnen / Wechsel
+   des Eintrags neu befüllt und beim Speichern in Array/String/null
+   umgewandelt. */
+const selectedBefinden = new Set();
+const selectedBegleitung = new Set();
 
 /* ---------- Toasts ----------
    Wichtige Toasts (z.B. Undo) dürfen nicht von beiläufigen Sync-Toasts
@@ -117,10 +125,14 @@ function collectKnownTagValues(key) {
   for (const dk in state.data) {
     for (const id in state.data[dk]) {
       const e = state.data[dk][id];
-      // Ort liest legacy `situation` mit, damit bestehende Werte im Dropdown auftauchen.
-      const raw = key === "ort" ? (e.ort ?? e.situation) : e[key];
-      const s = (raw || "").trim();
-      if (s) set.add(s);
+      if (key === "ort") {
+        // Ort liest legacy `situation` mit, damit bestehende Werte auftauchen.
+        const s = ((e.ort ?? e.situation) || "").trim();
+        if (s) set.add(s);
+      } else {
+        // befinden / begleitung können String ODER Array sein
+        for (const tag of normalizeTags(e[key])) set.add(tag);
+      }
     }
   }
   return Array.from(set).sort((a, b) => a.localeCompare(b, "de"));
@@ -156,9 +168,6 @@ function populateTagSelect(selectEl, inputEl, known, emptyLabel, newLabel, selec
 export function populateOrtOptions(selected) {
   populateTagSelect(ortSelect, ortInput, collectKnownTagValues("ort"), "— keiner —", "+ neuer Ort…", selected);
 }
-export function populateBefindenOptions(selected) {
-  populateTagSelect(befindenSelect, befindenInput, collectKnownTagValues("befinden"), "— keins —", "+ neues Befinden…", selected);
-}
 
 function wireTagSelect(selectEl, inputEl) {
   selectEl.addEventListener("change", () => {
@@ -170,6 +179,91 @@ function wireTagSelect(selectEl, inputEl) {
       inputEl.value = "";
     }
   });
+}
+
+/* ---------- Chip-basiertes Mehrfach-Tag-Eingabefeld ----------
+   `container` ist ein <div class="tag-chips">. Für jedes bekannte Tag
+   wird ein Button-Chip erzeugt; in `selected` enthaltene Tags bekommen
+   die Klasse `selected`. Tap → toggle. Ein zusätzlicher `+ neu`-Chip
+   blendet das mitgegebene Input-Feld ein; Enter/Blur fügt den Wert in
+   `selected` ein und re-rendert. DOM-API statt innerHTML — User-
+   Strings werden so nie als HTML interpretiert. */
+function renderChipGroup(container, newInput, knownAll, selected, newLabel) {
+  container.replaceChildren();
+  // Reihenfolge: zuerst ausgewählte (auch unbekannte / frisch hinzugefügte),
+  // dann der Rest alphabetisch.
+  const allSet = new Set(knownAll);
+  for (const s of selected) allSet.add(s);
+  const all = Array.from(allSet).sort((a, b) => a.localeCompare(b, "de"));
+
+  for (const tag of all) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip" + (selected.has(tag) ? " selected" : "");
+    btn.dataset.value = tag;
+    btn.setAttribute("aria-pressed", selected.has(tag) ? "true" : "false");
+    btn.textContent = tag;
+    btn.addEventListener("click", () => {
+      if (selected.has(tag)) selected.delete(tag);
+      else selected.add(tag);
+      renderChipGroup(container, newInput, knownAll, selected, newLabel);
+    });
+    container.append(btn);
+  }
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "chip chip-new";
+  addBtn.textContent = newLabel;
+  addBtn.addEventListener("click", () => {
+    newInput.hidden = false;
+    newInput.value = "";
+    requestAnimationFrame(() => { try { newInput.focus(); } catch (_) {} });
+  });
+  container.append(addBtn);
+}
+
+function commitNewChip(newInput, container, knownAll, selected, newLabel) {
+  const val = (newInput.value || "").trim();
+  newInput.value = "";
+  newInput.hidden = true;
+  if (!val) return;
+  selected.add(val);
+  // Neuer Tag soll sofort im Vorrat erscheinen.
+  if (!knownAll.includes(val)) knownAll.push(val);
+  renderChipGroup(container, newInput, knownAll, selected, newLabel);
+}
+
+function wireNewInput(newInput, container, getKnown, selected, newLabel) {
+  newInput.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      commitNewChip(newInput, container, getKnown(), selected, newLabel);
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      newInput.value = "";
+      newInput.hidden = true;
+    }
+  });
+  newInput.addEventListener("blur", () => {
+    commitNewChip(newInput, container, getKnown(), selected, newLabel);
+  });
+}
+
+export function populateBefindenChips() {
+  renderChipGroup(
+    befindenChips, befindenNewInput,
+    collectKnownTagValues("befinden"),
+    selectedBefinden,
+    "+ neu"
+  );
+}
+export function populateBegleitungChips() {
+  renderChipGroup(
+    begleitungChips, begleitungNewInput,
+    collectKnownTagValues("begleitung"),
+    selectedBegleitung,
+    "+ neu"
+  );
 }
 
 export function openSheet(dk, preselectEntryId = null) {
@@ -189,7 +283,12 @@ export function openSheet(dk, preselectEntryId = null) {
   if (isToday) timeInput.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   else timeInput.value = "12:00";
   populateOrtOptions("");
-  populateBefindenOptions("");
+  selectedBefinden.clear();
+  selectedBegleitung.clear();
+  befindenNewInput.hidden = true; befindenNewInput.value = "";
+  begleitungNewInput.hidden = true; begleitungNewInput.value = "";
+  populateBefindenChips();
+  populateBegleitungChips();
   noteInput.value = "";
   updateNoteCount();
   renderEntryList(dk);
@@ -208,7 +307,12 @@ export function openSheet(dk, preselectEntryId = null) {
       timeInput.value = `${pad(t.getHours())}:${pad(t.getMinutes())}`;
     }
     populateOrtOptions((e.ort ?? e.situation ?? "").trim());
-    populateBefindenOptions((e.befinden || "").trim());
+    selectedBefinden.clear();
+    for (const t of normalizeTags(e.befinden)) selectedBefinden.add(t);
+    selectedBegleitung.clear();
+    for (const t of normalizeTags(e.begleitung)) selectedBegleitung.add(t);
+    populateBefindenChips();
+    populateBegleitungChips();
     noteInput.value = (e.note || "").trim();
     updateNoteCount();
     renderEntryList(dk);
@@ -247,12 +351,16 @@ export function renderEntryList(dk) {
     const v = Number(e.value);
     const c = valueToColor(v);
     const ort = (e.ort ?? e.situation ?? "").trim();
-    const bef = (e.befinden || "").trim();
+    const befTags = normalizeTags(e.befinden);
+    const beglTags = normalizeTags(e.begleitung);
     const note = (e.note || "").trim();
     const ortSafe = ort ? escapeHtml(ort) : "";
-    const befSafe = bef ? escapeHtml(bef) : "";
     const noteSafe = note ? escapeHtml(note) : "";
-    const tagParts = [ortSafe, befSafe].filter(Boolean);
+    const tagParts = [
+      ortSafe,
+      ...befTags.map(escapeHtml),
+      ...beglTags.map(t => `mit ${escapeHtml(t)}`)
+    ].filter(Boolean);
     const row = document.createElement("div");
     row.className = "entry" + (id === state.editingEntryId ? " active" : "");
     row.innerHTML = `
@@ -276,7 +384,12 @@ export function renderEntryList(dk) {
         timeInput.value = "";
       }
       populateOrtOptions(ort);
-      populateBefindenOptions(bef);
+      selectedBefinden.clear();
+      for (const t of befTags) selectedBefinden.add(t);
+      selectedBegleitung.clear();
+      for (const t of beglTags) selectedBegleitung.add(t);
+      populateBefindenChips();
+      populateBegleitungChips();
       noteInput.value = note;
       updateNoteCount();
       renderEntryList(dk);
@@ -294,14 +407,26 @@ function genTempId() {
   return "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
+/* Tag-Felder beim Schreiben rückwärts­kompatibel halten:
+   leer → null/weggelassen, 1 Tag → String (alte Reader können damit umgehen),
+   ≥2 Tags → Array. */
+function tagsToStored(arr) {
+  if (!arr || !arr.length) return null;
+  if (arr.length === 1) return arr[0];
+  return arr.slice();
+}
+
+function saveEntry(dk, entryId, v, ts, ort, befinden, begleitung, note) {
   if (!canWrite()) return;
   if (!state.data[dk]) state.data[dk] = {};
   const cleanNote = (note || "").trim();
+  const befStored = tagsToStored(befinden);
+  const beglStored = tagsToStored(begleitung);
   if (entryId) {
     const updatePayload = { value: v, ts };
     updatePayload.ort = ort || null;
-    updatePayload.befinden = befinden || null;
+    updatePayload.befinden = befStored;
+    updatePayload.begleitung = beglStored;
     updatePayload.note = cleanNote || null;
     // Falls dieser Eintrag noch legacy `situation` hat, beim Update wegräumen,
     // damit Ort eindeutig bleibt.
@@ -312,8 +437,10 @@ function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
     delete state.data[dk][entryId].situation;
     if (ort) state.data[dk][entryId].ort = ort;
     else delete state.data[dk][entryId].ort;
-    if (befinden) state.data[dk][entryId].befinden = befinden;
+    if (befStored != null) state.data[dk][entryId].befinden = befStored;
     else delete state.data[dk][entryId].befinden;
+    if (beglStored != null) state.data[dk][entryId].begleitung = beglStored;
+    else delete state.data[dk][entryId].begleitung;
     if (cleanNote) state.data[dk][entryId].note = cleanNote;
     else delete state.data[dk][entryId].note;
 
@@ -323,7 +450,8 @@ function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
       if (p) {
         p.payload = { value: v, ts };
         if (ort) p.payload.ort = ort;
-        if (befinden) p.payload.befinden = befinden;
+        if (befStored != null) p.payload.befinden = befStored;
+        if (beglStored != null) p.payload.begleitung = beglStored;
         if (cleanNote) p.payload.note = cleanNote;
       }
     } else {
@@ -346,7 +474,8 @@ function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
     const tempId = genTempId();
     const payload = { value: v, ts };
     if (ort) payload.ort = ort;
-    if (befinden) payload.befinden = befinden;
+    if (befStored != null) payload.befinden = befStored;
+    if (beglStored != null) payload.begleitung = beglStored;
     if (cleanNote) payload.note = cleanNote;
     state.data[dk][tempId] = payload;
     state.pendingQueue.push({ op: "push", tempId, dk, payload });
@@ -421,8 +550,10 @@ export function initUi() {
   entriesTitle = document.getElementById("entriesTitle");
   ortSelect = document.getElementById("ortSelect");
   ortInput = document.getElementById("ortInput");
-  befindenSelect = document.getElementById("befindenSelect");
-  befindenInput = document.getElementById("befindenInput");
+  befindenChips = document.getElementById("befindenChips");
+  befindenNewInput = document.getElementById("befindenNewInput");
+  begleitungChips = document.getElementById("begleitungChips");
+  begleitungNewInput = document.getElementById("begleitungNewInput");
   sliderTicks = document.getElementById("sliderTicks");
   noteInput = document.getElementById("noteInput");
   noteCount = document.getElementById("noteCount");
@@ -434,7 +565,16 @@ export function initUi() {
   slider.addEventListener("input", updateFeel);
   noteInput.addEventListener("input", updateNoteCount);
   wireTagSelect(ortSelect, ortInput);
-  wireTagSelect(befindenSelect, befindenInput);
+  wireNewInput(
+    befindenNewInput, befindenChips,
+    () => collectKnownTagValues("befinden"),
+    selectedBefinden, "+ neu"
+  );
+  wireNewInput(
+    begleitungNewInput, begleitungChips,
+    () => collectKnownTagValues("begleitung"),
+    selectedBegleitung, "+ neu"
+  );
 
   // Tab-Falle + ESC im Sheet
   document.addEventListener("keydown", (ev) => {
@@ -467,9 +607,15 @@ export function initUi() {
     const readTag = (selectEl, inputEl) =>
       selectEl.value === "__new__" ? inputEl.value.trim() : selectEl.value.trim();
     const ort = readTag(ortSelect, ortInput);
-    const befinden = readTag(befindenSelect, befindenInput);
+    // Ungespeicherten Text im "+ neu"-Feld noch ins Set übernehmen.
+    const pendingBef = (befindenNewInput.value || "").trim();
+    if (pendingBef) selectedBefinden.add(pendingBef);
+    const pendingBegl = (begleitungNewInput.value || "").trim();
+    if (pendingBegl) selectedBegleitung.add(pendingBegl);
+    const befinden = Array.from(selectedBefinden);
+    const begleitung = Array.from(selectedBegleitung);
     const note = (noteInput.value || "").trim();
-    saveEntry(state.selectedDayKey, state.editingEntryId, v, ts, ort, befinden, note);
+    saveEntry(state.selectedDayKey, state.editingEntryId, v, ts, ort, befinden, begleitung, note);
     closeSheet();
   };
 
@@ -534,7 +680,7 @@ const ONBOARDING_SLIDES = [
       <div class="ob-mock" aria-hidden="true">
         <div class="ob-mock-row"><span class="num">1</span><span>Tippe das <b>+</b> unten rechts</span></div>
         <div class="ob-mock-row"><span class="num">2</span><span>Schiebe den <b>Slider</b> auf dein Gefühl</span></div>
-        <div class="ob-mock-row"><span class="num">3</span><span>Optional: <b>Ort</b>, <b>Befinden</b>, <b>Notiz</b></span></div>
+        <div class="ob-mock-row"><span class="num">3</span><span>Optional: <b>Ort</b>, <b>Befinden</b>, <b>Begleitung</b>, <b>Notiz</b></span></div>
         <div class="ob-mock-row"><span class="num">4</span><span><b>Speichern</b> — fertig in 5 Sekunden</span></div>
       </div>`,
     body: `Lieber <b>mehrmals kurz</b> einchecken als einmal lang — so erfasst du auch Schwankungen im Tagesverlauf. Du kannst Einträge jederzeit bearbeiten oder löschen.`
@@ -679,11 +825,16 @@ function renderSearchResults(query, container) {
     for (const id in state.data[dk]) {
       const e = state.data[dk][id];
       const ort = (e.ort ?? e.situation ?? "").trim();
-      const bef = (e.befinden || "").trim();
+      const befTags = normalizeTags(e.befinden);
+      const beglTags = normalizeTags(e.begleitung);
       const note = (e.note || "").trim();
-      const haystack = `${note}\n${ort}\n${bef}`.toLowerCase();
+      const haystack = [
+        note, ort,
+        ...befTags,
+        ...beglTags
+      ].join("\n").toLowerCase();
       if (!haystack.includes(q)) continue;
-      matches.push({ dk, id, e, ort, bef, note });
+      matches.push({ dk, id, e, ort, befTags, beglTags, note });
     }
   }
   if (!matches.length) {
@@ -702,7 +853,11 @@ function renderSearchResults(query, container) {
     const d = parseDayKey(m.dk);
     const dateLabel = d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
     const time = m.e.ts ? fmtTime(m.e.ts) : "—";
-    const tagParts = [m.ort, m.bef].filter(Boolean).map(escapeHtml).join(" · ");
+    const tagParts = [
+      m.ort,
+      ...m.befTags,
+      ...m.beglTags.map(t => `mit ${t}`)
+    ].filter(Boolean).map(escapeHtml).join(" · ");
     const snippet = m.note ? highlightSnippet(m.note, q) : "";
     const row = document.createElement("div");
     row.className = "search-row";
@@ -777,21 +932,23 @@ function initFabScrollHide() {
 }
 
 function initInfoCards() {
-  function closeAll() {
+  /* Native <details>/<summary>-Toggle übernehmen lassen. preventDefault auf
+     click ist race-anfällig (insb. iOS Safari schaltet vor dem Listener
+     nativ um → wasOpen liest falsch → öffnet sofort wieder). Stattdessen:
+     - 'toggle' (capture, da nicht-bubbling) erzwingt "nur eine offen"
+     - Document-click schließt bei Klick außerhalb
+     - ESC schließt alle */
+  const closeAll = (except = null) => {
     for (const d of document.querySelectorAll("details.info[open]")) {
-      d.removeAttribute("open");
+      if (d !== except) d.removeAttribute("open");
     }
-  }
-  for (const summary of document.querySelectorAll("details.info > summary")) {
-    summary.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const d = summary.parentElement;
-      const wasOpen = d.hasAttribute("open");
-      closeAll();
-      if (!wasOpen) d.setAttribute("open", "");
-    });
-  }
+  };
+  document.addEventListener("toggle", (ev) => {
+    const d = ev.target;
+    if (!(d instanceof HTMLDetailsElement)) return;
+    if (!d.classList.contains("info")) return;
+    if (d.open) closeAll(d);
+  }, true);
   document.addEventListener("click", (ev) => {
     const opened = document.querySelectorAll("details.info[open]");
     if (!opened.length) return;
@@ -809,8 +966,9 @@ function initInfoCards() {
 export function syncSheetAfterRender() {
   if (!sheet || !sheet.classList.contains("open")) return;
   const keepOrt = ortSelect.value && ortSelect.value !== "__new__" ? ortSelect.value : "";
-  const keepBef = befindenSelect.value && befindenSelect.value !== "__new__" ? befindenSelect.value : "";
   populateOrtOptions(keepOrt);
-  populateBefindenOptions(keepBef);
+  // Sets bleiben erhalten; nur das Pool bekannter Tags neu einsammeln.
+  populateBefindenChips();
+  populateBegleitungChips();
   if (state.selectedDayKey) renderEntryList(state.selectedDayKey);
 }
