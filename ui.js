@@ -271,9 +271,16 @@ export function openSheet(dk, preselectEntryId = null) {
   state.selectedDayKey = dk;
   state.editingEntryId = null;
   const d = parseDayKey(dk);
-  const isToday = dk === dayKey(new Date());
+  const todayKey = dayKey(new Date());
+  const isToday  = dk === todayKey;
+  const isFuture = dk > todayKey; // YYYY-MM-DD lex-sortiert == chronologisch
+  applySheetReadonly(isFuture);
   sheetTitle.textContent = isToday ? "Heutiger Check-in" : `Check-in · ${d.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`;
-  sheetSubtitle.textContent = isToday ? "Wie fühlst du dich gerade?" : "Eintrag rückwirkend erfassen oder bearbeiten.";
+  if (isFuture) {
+    sheetSubtitle.textContent = "Dieser Tag liegt in der Zukunft. Du kannst hier nur ältere Einträge ansehen.";
+  } else {
+    sheetSubtitle.textContent = isToday ? "Wie fühlst du dich gerade?" : "Eintrag rückwirkend erfassen oder bearbeiten.";
+  }
   const entries = state.data[dk] ? Object.entries(state.data[dk]).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0)) : [];
   const lastVal = entries.length ? Number(entries[entries.length - 1][1].value) : NaN;
   const seed = Number.isFinite(lastVal) ? lastVal : 50;
@@ -294,6 +301,7 @@ export function openSheet(dk, preselectEntryId = null) {
   renderEntryList(dk);
   backdrop.classList.add("open");
   sheet.classList.add("open");
+  document.body.classList.add("modal-open");
   /* Wenn ein Eintrag vorausgewählt werden soll (z. B. aus der Suche),
      dessen Daten in das Formular übernehmen. */
   if (preselectEntryId && state.data[dk] && state.data[dk][preselectEntryId]) {
@@ -324,8 +332,29 @@ export function openSheet(dk, preselectEntryId = null) {
 function closeSheet() {
   backdrop.classList.remove("open");
   sheet.classList.remove("open");
+  document.body.classList.remove("modal-open");
+  applySheetReadonly(false);
   state.selectedDayKey = null;
   state.editingEntryId = null;
+}
+
+/* Sperrt/entsperrt alle Eingaben im Sheet — wird für Tage in der
+   Zukunft aktiviert. Save-Button + Inputs werden disabled, Chips
+   übernimmt die CSS-Regel `.sheet.is-readonly`. */
+function applySheetReadonly(locked) {
+  sheet.classList.toggle("is-readonly", !!locked);
+  const lockables = [
+    slider, ortSelect, ortInput,
+    befindenNewInput, begleitungNewInput,
+    noteInput, timeInput
+  ];
+  for (const el of lockables) { if (el) el.disabled = !!locked; }
+  const nowBtnEl = document.getElementById("nowBtn");
+  if (nowBtnEl) nowBtnEl.disabled = !!locked;
+  const saveBtnEl = document.getElementById("saveBtn");
+  if (saveBtnEl) saveBtnEl.disabled = !!locked;
+  const hint = document.getElementById("readonlyHint");
+  if (hint) hint.hidden = !locked;
 }
 
 /* A11y: Fokus innerhalb des offenen Sheets halten (Tab-Falle). */
@@ -418,6 +447,9 @@ function tagsToStored(arr) {
 
 function saveEntry(dk, entryId, v, ts, ort, befinden, begleitung, note) {
   if (!canWrite()) return;
+  // Defense-in-depth: niemals Check-ins für Tage in der Zukunft anlegen,
+  // selbst wenn das Sheet-UI umgangen würde.
+  if (dk > dayKey(new Date())) return;
   if (!state.data[dk]) state.data[dk] = {};
   const cleanNote = (note || "").trim();
   const befStored = tagsToStored(befinden);
