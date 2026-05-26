@@ -74,9 +74,28 @@
   .brand h1 {
     font-size: clamp(20px, 2.4vw + 14px, 30px); margin: 0; letter-spacing: -0.3px; line-height: 1.05;
     font-weight: 800;
-    background: linear-gradient(135deg, var(--pink) 0%, #e7a8de 45%, var(--blue) 100%);
+    /* Regenbogen in den Gender-Flag-Farben, der per background-position
+       endlos von links nach rechts wandert. Start- und Endfarbe sind
+       identisch (pink), damit der Loop fugenlos ist. */
+    background: linear-gradient(90deg,
+      var(--flag-pink) 0%,
+      var(--pink-soft) 15%,
+      var(--flag-purple) 35%,
+      var(--blue-soft) 55%,
+      var(--flag-blue) 70%,
+      var(--flag-purple) 85%,
+      var(--flag-pink) 100%);
+    background-size: 200% 100%;
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent; color: transparent;
+    animation: brand-rainbow 7s linear infinite;
+  }
+  @keyframes brand-rainbow {
+    0%   { background-position: 0%   50%; }
+    100% { background-position: 200% 50%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .brand h1 { animation: none !important; }
   }
   .brand small { color: var(--text-dim); font-size: 12px; letter-spacing: 0.2px; margin-top: 2px; display: block; }
   .status-dot {
