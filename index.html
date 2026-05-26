@@ -44,21 +44,21 @@
 
   <div class="container">
     <header class="app-header">
-      <div class="brand">
-        <div class="brand-mark">⚧</div>
-        <div>
-          <h1>Genderfluid-Tracker</h1>
-          <small>Tägliche Check-ins · live synchronisiert</small>
+      <div class="app-header-top">
+        <div class="brand-mark" aria-hidden="true">⚧</div>
+        <div class="header-tools">
+          <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
+          <button class="header-btn" id="searchBtn" type="button" title="In Notizen suchen" aria-label="Suche öffnen">🔍</button>
+          <button class="header-btn" id="helpBtn" type="button" title="Einführung" aria-label="Einführung öffnen">?</button>
+          <button class="header-btn preview-toggle-btn" id="previewToggleBtn" type="button" title="In Besucher-Vorschau umschalten" aria-label="Besucher-Vorschau umschalten" aria-pressed="false" hidden>👁</button>
+          <button class="header-btn" id="exportBtn" type="button" title="Daten als JSON exportieren" aria-label="Daten als JSON exportieren">⤓</button>
+          <span class="user-badge" id="userBadge" hidden></span>
+          <button class="header-btn" id="logoutBtn" type="button" title="Abmelden" aria-label="Abmelden" hidden>⎋</button>
         </div>
       </div>
-      <div class="header-tools">
-        <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
-        <button class="header-btn" id="searchBtn" type="button" title="In Notizen suchen" aria-label="Suche öffnen">🔍</button>
-        <button class="header-btn" id="helpBtn" type="button" title="Einführung" aria-label="Einführung öffnen">?</button>
-        <button class="header-btn preview-toggle-btn" id="previewToggleBtn" type="button" title="In Besucher-Vorschau umschalten" aria-label="Besucher-Vorschau umschalten" aria-pressed="false" hidden>👁</button>
-        <button class="header-btn" id="exportBtn" type="button" title="Daten als JSON exportieren" aria-label="Daten als JSON exportieren">⤓</button>
-        <span class="user-badge" id="userBadge" hidden></span>
-        <button class="header-btn" id="logoutBtn" type="button" title="Abmelden" aria-label="Abmelden" hidden>⎋</button>
+      <div class="app-header-title">
+        <h1>Genderfluid-Tracker</h1>
+        <small>Tägliche Check-ins · live synchronisiert</small>
       </div>
     </header>
 
