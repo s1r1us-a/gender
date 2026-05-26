@@ -72,7 +72,7 @@
     opacity: 0.4; filter: blur(14px); z-index: -1;
   }
   .brand h1 {
-    font-size: 30px; margin: 0; letter-spacing: -0.3px; line-height: 1.05;
+    font-size: clamp(20px, 2.4vw + 14px, 30px); margin: 0; letter-spacing: -0.3px; line-height: 1.05;
     font-weight: 800;
     background: linear-gradient(135deg, var(--pink) 0%, #e7a8de 45%, var(--blue) 100%);
     -webkit-background-clip: text; background-clip: text;
@@ -135,7 +135,7 @@
     margin-bottom: 14px;
   }
   .month-nav .title {
-    font-size: 17px; font-weight: 600; letter-spacing: 0.3px;
+    font-size: clamp(15px, 1vw + 12px, 17px); font-weight: 600; letter-spacing: 0.3px;
   }
   .iconbtn {
     background: var(--card-strong);
@@ -340,7 +340,7 @@
     display: flex; align-items: baseline; gap: 10px;
     font-variant-numeric: tabular-nums;
   }
-  .hero-value .num { font-size: 44px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
+  .hero-value .num { font-size: clamp(28px, 6vw + 10px, 44px); font-weight: 800; letter-spacing: -1px; line-height: 1; }
   .hero-value .lbl { font-size: 16px; font-weight: 600; color: var(--text-dim); }
   .hero-trend {
     font-size: 12px; color: var(--text-dim);
@@ -960,6 +960,27 @@
     .stat .value { font-size: 18px; }
     .heatmap .hcell { width: 10px; height: 10px; }
 
+    /* Header kompakter */
+    .app-header { gap: 8px; margin-bottom: 18px; }
+    .brand { gap: 10px; min-width: 0; }
+    .brand small { font-size: 11px; }
+    .user-badge { display: none !important; }
+    .header-tools { gap: 6px; flex-shrink: 0; }
+    .header-btn { width: 40px; height: 40px; font-size: 18px; }
+    .status { font-size: 11px; }
+
+    /* Card-Padding reduzieren */
+    .card { padding: 14px; }
+    .hero-card { padding: 16px; }
+
+    /* Touch-Targets */
+    .iconbtn { width: 40px; height: 40px; }
+    .today-btn { width: auto; min-width: 56px; padding: 0 12px; height: 40px; }
+
+    /* FAB Scroll-Hide */
+    .fab { transition: transform .25s ease, box-shadow .25s ease; }
+    .fab.fab--hidden { transform: translateY(160%); }
+
     /* Hero stapelt auf mobile */
     .hero-inner {
       grid-template-columns: auto 1fr;
@@ -992,6 +1013,18 @@
     }
     @keyframes slideup { from {transform: translateY(100%)} to {transform: translateY(0)} }
     .feel .sym-big { font-size: 48px; }
+  }
+
+  @media (max-width: 380px) {
+    .container { padding: 14px 10px 100px; }
+    .brand-mark { width: 38px; height: 38px; font-size: 20px; border-radius: 12px; }
+    .brand small { display: none; }
+    #statusText { display: none; }
+    .status-dot { margin-right: 0; }
+    .header-btn { width: 38px; height: 38px; }
+    .hero-value .num { font-size: 26px; }
+    .hero-sym { width: 56px; height: 56px; font-size: 36px; border-radius: 16px; }
+    .card { padding: 12px; }
   }
 
   /* ---------- Login-Gate ---------- */
