@@ -993,3 +993,69 @@
     @keyframes slideup { from {transform: translateY(100%)} to {transform: translateY(0)} }
     .feel .sym-big { font-size: 48px; }
   }
+
+  /* ---------- Login-Gate ---------- */
+  .login-gate {
+    position: fixed; inset: 0; z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(circle at 20% 10%, rgba(255,111,181,0.25), transparent 55%),
+      radial-gradient(circle at 80% 90%, rgba(111,181,255,0.25), transparent 55%),
+      linear-gradient(180deg, var(--bg-0), var(--bg-1) 55%, var(--bg-0));
+  }
+  .login-gate[hidden] { display: none; }
+  .login-card {
+    width: 100%; max-width: 380px;
+    background: var(--card-strong);
+    border: 1px solid var(--border, rgba(255,255,255,0.1));
+    border-radius: 20px;
+    padding: 28px 24px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+  }
+  .login-brand { text-align: center; margin-bottom: 20px; }
+  .login-mark {
+    font-size: 38px;
+    background: linear-gradient(135deg, var(--pink), var(--blue));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .login-brand h1 { margin: 6px 0 4px; font-size: 20px; color: var(--text); }
+  .login-brand p { margin: 0; font-size: 13px; color: var(--text-dim); }
+  .login-form { display: flex; flex-direction: column; gap: 8px; }
+  .login-form[hidden] { display: none; }
+  .login-form label {
+    font-size: 12px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-top: 6px;
+  }
+  .login-form input[type=email],
+  .login-form input[type=password] {
+    padding: 11px 12px; border-radius: 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border, rgba(255,255,255,0.1));
+    color: var(--text); font-size: 15px;
+  }
+  .login-form input:focus { outline: 2px solid rgba(255,111,181,0.5); }
+  .login-form .btn { margin-top: 14px; }
+  .login-form .btn-ghost { margin-top: 6px; }
+  .login-error {
+    min-height: 18px; margin-top: 6px;
+    font-size: 13px; color: #ffb3b3;
+  }
+  .login-info {
+    margin: 0 0 4px; font-size: 13px; color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  /* Header-Erweiterung: User-Badge */
+  .user-badge {
+    font-size: 12px; color: var(--text-dim);
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .user-badge[hidden] { display: none; }
+
+  /* Viewer-Mode: alles, was schreibt, ausblenden */
+  body.viewer-mode #quickCheckin,
+  body.viewer-mode #exportBtn,
+  body.viewer-mode #heroCheckinBtn { display: none !important; }
+  body.viewer-mode .cell { cursor: default; }

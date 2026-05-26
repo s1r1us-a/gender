@@ -8,6 +8,36 @@
 <link rel="stylesheet" href="app.css" />
 </head>
 <body>
+  <div id="loginGate" class="login-gate" aria-hidden="false">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="login-mark">⚧</div>
+        <h1>Genderfluid-Tracker</h1>
+        <p>Bitte melde dich mit deinem Konto an.</p>
+      </div>
+
+      <form id="loginForm" class="login-form" autocomplete="on" novalidate>
+        <label for="loginEmail">E-Mail</label>
+        <input type="email" id="loginEmail" autocomplete="username" required />
+        <label for="loginPassword">Passwort</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" required />
+        <div class="login-error" id="loginError" role="alert"></div>
+        <button type="submit" class="btn btn-primary" id="loginSubmit">Anmelden</button>
+      </form>
+
+      <form id="changePwForm" class="login-form" autocomplete="off" novalidate hidden>
+        <p class="login-info">Willkommen! Bitte setze ein eigenes Passwort (mind. 8 Zeichen). Das Start-Passwort gilt danach nicht mehr.</p>
+        <label for="newPassword">Neues Passwort</label>
+        <input type="password" id="newPassword" autocomplete="new-password" minlength="8" required />
+        <label for="newPasswordRepeat">Wiederholen</label>
+        <input type="password" id="newPasswordRepeat" autocomplete="new-password" minlength="8" required />
+        <div class="login-error" id="changePwError" role="alert"></div>
+        <button type="submit" class="btn btn-primary" id="changePwSubmit">Passwort speichern</button>
+        <button type="button" class="btn btn-ghost" id="changePwCancel">Abbrechen</button>
+      </form>
+    </div>
+  </div>
+
   <div class="container">
     <header class="app-header">
       <div class="brand">
@@ -20,6 +50,8 @@
       <div class="header-tools">
         <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
         <button class="header-btn" id="exportBtn" type="button" title="Daten als JSON exportieren" aria-label="Daten als JSON exportieren">⤓</button>
+        <span class="user-badge" id="userBadge" hidden></span>
+        <button class="header-btn" id="logoutBtn" type="button" title="Abmelden" aria-label="Abmelden" hidden>⎋</button>
       </div>
     </header>
 
