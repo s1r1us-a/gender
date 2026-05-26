@@ -314,24 +314,150 @@
     100% { transform: translate(-50%, -50%); opacity: 1; }
   }
 
-  /* Hero "Du heute" */
-  .hero-card { padding: 22px; }
+  /* Hero "Du heute" — fällt durch dicken farbigen Rand (Wert-Farbe von
+     heute) und mehrere Animationen aus dem Rest der Karten heraus.
+     Die Farb-Variablen `--hero-r/g/b/hex` werden in render.js gesetzt.
+     Fallback: graue Variante, falls heute noch kein Check-in existiert. */
+  .hero-card {
+    padding: 22px;
+    position: relative;
+    isolation: isolate;
+    border: 3px solid rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.85);
+    box-shadow:
+      0 0 0 1px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.35),
+      0 14px 44px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.30),
+      inset 0 0 60px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.10);
+    background:
+      radial-gradient(120% 80% at 0% 0%, rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.10), transparent 55%),
+      radial-gradient(120% 80% at 100% 100%, rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.08), transparent 55%),
+      var(--card-bg, rgba(255,255,255,0.04));
+    animation: hero-pulse 3.4s ease-in-out infinite;
+    transition: border-color .8s ease, box-shadow .8s ease;
+  }
+  /* Rotierender Schimmer am Rand: conic-gradient als äußerer Ring, der per
+     Mask nur den Border-Bereich abdeckt — wirkt wie ein langsam wanderndes
+     Highlight um die Karte herum. */
+  .hero-card::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: inherit;
+    padding: 3px;
+    background: conic-gradient(
+      from var(--hero-spin, 0deg),
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.0) 0deg,
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.95) 60deg,
+      rgba(255, 255, 255, 0.85) 90deg,
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.95) 120deg,
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.0) 220deg,
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.0) 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+            mask-composite: exclude;
+    pointer-events: none;
+    z-index: -1;
+    animation: hero-spin 8s linear infinite;
+    opacity: 0.85;
+  }
+  /* Sanftes Hintergrund-Aurora-Pulsen hinter den Inhalten. */
+  .hero-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(60% 60% at 50% 50%,
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.16),
+      transparent 70%);
+    pointer-events: none;
+    z-index: -1;
+    animation: hero-aurora 5.6s ease-in-out infinite;
+  }
+  @keyframes hero-pulse {
+    0%, 100% {
+      box-shadow:
+        0 0 0 1px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.35),
+        0 14px 44px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.30),
+        inset 0 0 60px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.10);
+    }
+    50% {
+      box-shadow:
+        0 0 0 2px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.55),
+        0 22px 70px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.55),
+        inset 0 0 90px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.18);
+    }
+  }
+  @keyframes hero-spin  { to { transform: rotate(360deg); } }
+  @keyframes hero-aurora {
+    0%, 100% { opacity: 0.55; transform: scale(0.96); }
+    50%      { opacity: 1;    transform: scale(1.04); }
+  }
+  /* Conic-Gradient + transform via @property → animierbares Drehen ohne
+     dass `transform` auf das Pseudo-Element die Mask zerstört. */
+  @property --hero-spin {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+  }
+  .hero-card { --hero-spin: 0deg; animation: hero-pulse 3.4s ease-in-out infinite, hero-spin-prop 8s linear infinite; }
+  @keyframes hero-spin-prop {
+    to { --hero-spin: 360deg; }
+  }
+
   .hero-inner {
     display: grid;
     grid-template-columns: auto 1fr auto;
     gap: 18px;
     align-items: center;
+    position: relative;
+    z-index: 1;
   }
   .hero-sym {
     font-size: 64px; line-height: 1; width: 88px; height: 88px;
     display: grid; place-items: center;
     border-radius: 24px;
     background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
-    border: 1px solid rgba(255,255,255,0.10);
-    box-shadow: inset 0 0 40px rgba(var(--mood-r), var(--mood-g), var(--mood-b), 0.25);
-    animation: breathe 4.5s ease-in-out infinite;
+    border: 2px solid rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.65);
+    box-shadow:
+      inset 0 0 40px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.35),
+      0 0 30px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.35);
+    animation: breathe 4.5s ease-in-out infinite, hero-sym-wobble 7s ease-in-out infinite;
     overflow: hidden;
     flex-shrink: 0;
+  }
+  @keyframes hero-sym-wobble {
+    0%, 100% { transform: rotate(-3deg); }
+    50%      { transform: rotate(3deg); }
+  }
+  /* Eingeloggter Wert (Zahl) bekommt einen leichten Color-Sweep. */
+  .hero-value .num {
+    background: linear-gradient(120deg,
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 1.0) 0%,
+      rgba(255,255,255,0.95) 50%,
+      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 1.0) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: hero-num-shimmer 5.5s ease-in-out infinite;
+  }
+  @keyframes hero-num-shimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
+  }
+  /* Barrierefreiheit: Reduced-Motion-User bekommen den Rand, aber keine
+     Bewegungs-Animationen. */
+  @media (prefers-reduced-motion: reduce) {
+    .hero-card,
+    .hero-card::before,
+    .hero-card::after,
+    .hero-sym,
+    .hero-value .num { animation: none !important; }
   }
   .hero-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .hero-eyebrow {

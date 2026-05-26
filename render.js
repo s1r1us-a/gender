@@ -179,9 +179,22 @@ function renderOverviewMeta(stats) {
 
 function renderHeroToday(stats) {
   const inner = document.getElementById("heroInner");
+  const card = document.getElementById("heroCard");
   const agg = computePeriodAggregates(stats);
   const todayDk = dayKey(new Date());
   const todayCount = state.data[todayDk] ? Object.keys(state.data[todayDk]).length : 0;
+  /* Hero-Karten-Farbe setzen: heute-Schnitt → Wert-Farbe, sonst
+     dezenter Lila-Fallback. render.js setzt die Variablen am Card,
+     damit das CSS-Animation-System sie verwenden kann. */
+  const heroColor = agg.todayAvg != null
+    ? valueToColor(agg.todayAvg)
+    : { r: 168, g: 138, b: 222, hex: "#a88ade" };
+  if (card) {
+    card.style.setProperty("--hero-r", heroColor.r);
+    card.style.setProperty("--hero-g", heroColor.g);
+    card.style.setProperty("--hero-b", heroColor.b);
+    card.style.setProperty("--hero-hex", heroColor.hex);
+  }
   if (agg.todayAvg == null) {
     inner.innerHTML = `
       <div class="hero-empty">
