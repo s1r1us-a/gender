@@ -1,7 +1,12 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getDatabase, ref, onValue, push, update, remove
+  getDatabase, ref, onValue, push, update, remove, get, set, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import {
+  getAuth, onAuthStateChanged,
+  signInWithEmailAndPassword, signOut, updatePassword,
+  setPersistence, browserLocalPersistence
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   dayKey, parseDayKey,
   avg, stddev, median, percentile, bucket,
@@ -24,6 +29,175 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+/* ---------- Auth / Rollen ---------- */
+const ADMIN_EMAIL  = "raederich@outlook.com";
+const VIEWER_EMAIL = "nele.busse@web.de";
+const ALLOWED_EMAILS = [ADMIN_EMAIL, VIEWER_EMAIL];
+
+let currentUser = null;
+let currentRole = null; // "admin" | "viewer" | null
+const canWrite = () => currentRole === "admin";
+
+function roleFor(email) {
+  const e = (email || "").trim().toLowerCase();
+  if (e === ADMIN_EMAIL)  return "admin";
+  if (e === VIEWER_EMAIL) return "viewer";
+  return null;
+}
+
+const loginGate     = document.getElementById("loginGate");
+const loginForm     = document.getElementById("loginForm");
+const loginEmail    = document.getElementById("loginEmail");
+const loginPassword = document.getElementById("loginPassword");
+const loginError    = document.getElementById("loginError");
+const loginSubmit   = document.getElementById("loginSubmit");
+const changePwForm     = document.getElementById("changePwForm");
+const newPassword      = document.getElementById("newPassword");
+const newPasswordRepeat= document.getElementById("newPasswordRepeat");
+const changePwError    = document.getElementById("changePwError");
+const changePwSubmit   = document.getElementById("changePwSubmit");
+const changePwCancel   = document.getElementById("changePwCancel");
+const userBadge        = document.getElementById("userBadge");
+const logoutBtn        = document.getElementById("logoutBtn");
+
+function showLoginView() {
+  loginGate.hidden = false;
+  loginForm.hidden = false;
+  changePwForm.hidden = true;
+  loginError.textContent = "";
+  changePwError.textContent = "";
+  newPassword.value = "";
+  newPasswordRepeat.value = "";
+}
+function showChangePwView() {
+  loginGate.hidden = false;
+  loginForm.hidden = true;
+  changePwForm.hidden = false;
+  changePwError.textContent = "";
+}
+function hideLoginGate() {
+  loginGate.hidden = true;
+  loginPassword.value = "";
+  newPassword.value = "";
+  newPasswordRepeat.value = "";
+}
+
+function applyRoleUI() {
+  document.body.classList.toggle("viewer-mode", currentRole === "viewer");
+  if (currentUser) {
+    userBadge.textContent = currentUser.email || "";
+    userBadge.hidden = false;
+    logoutBtn.hidden = false;
+  } else {
+    userBadge.hidden = true;
+    logoutBtn.hidden = true;
+  }
+}
+
+function friendlyAuthError(err) {
+  const code = err && err.code || "";
+  if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("invalid-login-credentials"))
+    return "E-Mail oder Passwort stimmt nicht.";
+  if (code.includes("user-not-found"))   return "Unbekannte E-Mail-Adresse.";
+  if (code.includes("invalid-email"))    return "Ungültige E-Mail-Adresse.";
+  if (code.includes("too-many-requests")) return "Zu viele Versuche. Bitte kurz warten.";
+  if (code.includes("network"))           return "Netzwerk-Problem. Bitte erneut versuchen.";
+  if (code.includes("weak-password"))     return "Passwort zu schwach (mind. 8 Zeichen).";
+  if (code.includes("requires-recent-login")) return "Bitte erneut anmelden, um das Passwort zu ändern.";
+  return "Anmeldung fehlgeschlagen.";
+}
+
+async function needsPasswordChange(uid) {
+  try {
+    const snap = await get(ref(db, `meta/users/${uid}/passwordChanged`));
+    return !(snap.exists() && snap.val() === true);
+  } catch {
+    // Im Zweifel sicherheitshalber Wechsel verlangen.
+    return true;
+  }
+}
+
+loginForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  loginError.textContent = "";
+  const email = (loginEmail.value || "").trim().toLowerCase();
+  const pw    = loginPassword.value || "";
+  if (!ALLOWED_EMAILS.includes(email)) {
+    loginError.textContent = "Kein zugelassener Account.";
+    return;
+  }
+  loginSubmit.disabled = true;
+  try {
+    await signInWithEmailAndPassword(auth, email, pw);
+    // weiter geht's in onAuthStateChanged
+  } catch (err) {
+    loginError.textContent = friendlyAuthError(err);
+  } finally {
+    loginSubmit.disabled = false;
+  }
+});
+
+changePwForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  changePwError.textContent = "";
+  const a = newPassword.value || "";
+  const b = newPasswordRepeat.value || "";
+  if (a.length < 8) { changePwError.textContent = "Passwort muss mind. 8 Zeichen haben."; return; }
+  if (a !== b)      { changePwError.textContent = "Passwörter stimmen nicht überein."; return; }
+  if (!auth.currentUser) { changePwError.textContent = "Nicht angemeldet."; return; }
+  changePwSubmit.disabled = true;
+  try {
+    await updatePassword(auth.currentUser, a);
+    await set(ref(db, `meta/users/${auth.currentUser.uid}`), {
+      passwordChanged: true,
+      changedAt: serverTimestamp(),
+      email: auth.currentUser.email || null
+    });
+    hideLoginGate();
+  } catch (err) {
+    changePwError.textContent = friendlyAuthError(err);
+  } finally {
+    changePwSubmit.disabled = false;
+  }
+});
+
+changePwCancel.addEventListener("click", async () => {
+  try { await signOut(auth); } catch {}
+});
+
+logoutBtn.addEventListener("click", async () => {
+  try { await signOut(auth); } catch {}
+  // Nach Logout: Reload statt komplexem Teardown der Listener.
+  location.reload();
+});
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    currentUser = null;
+    currentRole = null;
+    applyRoleUI();
+    showLoginView();
+    return;
+  }
+  const role = roleFor(user.email);
+  if (!role) {
+    // Unbekannter Account: sofort wieder rauswerfen.
+    await signOut(auth).catch(() => {});
+    loginError.textContent = "Kein zugelassener Account.";
+    return;
+  }
+  currentUser = user;
+  currentRole = role;
+  applyRoleUI();
+  if (await needsPasswordChange(user.uid)) {
+    showChangePwView();
+  } else {
+    hideLoginGate();
+  }
+});
 
 /* ---------- Helpers ---------- */
 const PINK = [255, 111, 181];
@@ -216,6 +390,7 @@ function updateStatus() {
 }
 
 async function flushPending() {
+  if (!canWrite()) { updateStatus(); return; }
   if (!serverConnected || !pendingQueue.length) { updateStatus(); return; }
   // Erste Op nehmen, ausführen; bei Erfolg entfernen und nächste
   const p = pendingQueue[0];
@@ -451,6 +626,7 @@ wireTagSelect(ortSelect, ortInput);
 wireTagSelect(befindenSelect, befindenInput);
 
 function openSheet(dk) {
+  if (!canWrite()) return;
   selectedDayKey = dk;
   editingEntryId = null;
   const d = parseDayKey(dk);
@@ -571,6 +747,7 @@ function genTempId() {
 }
 
 function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
+  if (!canWrite()) return;
   if (!DATA[dk]) DATA[dk] = {};
   const cleanNote = (note || "").trim();
   if (entryId) {
@@ -641,6 +818,7 @@ function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
 }
 
 function deleteEntry(dk, entryId) {
+  if (!canWrite()) return;
   if (DATA[dk]) {
     delete DATA[dk][entryId];
     if (!Object.keys(DATA[dk]).length) delete DATA[dk];
@@ -669,6 +847,7 @@ let pendingDeleteTimer = null;
 let pendingDeleteSnapshot = null;
 
 function requestDeleteWithUndo(dk, entryId) {
+  if (!canWrite()) return;
   if (!DATA[dk] || !DATA[dk][entryId]) return;
   // Falls noch ein anderes Soft-Delete läuft, dieses jetzt definitiv committen
   finalizePendingDelete();
@@ -754,6 +933,7 @@ function showToast(text, actionLabel, onAction, timeoutMs = 5000, onTimeout = nu
 
 /* ---------- Datenexport ---------- */
 function exportData() {
+  if (!canWrite()) return;
   // Snapshot inkl. lokaler Pending-Änderungen
   const snap = {};
   for (const dk in DATA) snap[dk] = { ...DATA[dk] };
@@ -778,6 +958,7 @@ if (exportBtn) exportBtn.addEventListener("click", exportData);
 window.addEventListener("beforeunload", finalizePendingDelete);
 
 document.getElementById("saveBtn").onclick = () => {
+  if (!canWrite()) return;
   if (!selectedDayKey) return;
   const v = sliderValue();
   const [rawHh, rawMm] = (timeInput.value || "12:00").split(":").map(Number);
