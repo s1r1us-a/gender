@@ -91,9 +91,11 @@ function applyRoleUI() {
     userBadge.textContent = currentUser.email || "";
     userBadge.hidden = false;
     logoutBtn.hidden = false;
+    logoutBtn.title = currentUser.email ? `Abmelden (${currentUser.email})` : "Abmelden";
   } else {
     userBadge.hidden = true;
     logoutBtn.hidden = true;
+    logoutBtn.title = "Abmelden";
   }
 }
 
@@ -1877,6 +1879,38 @@ function renderAll() {
 document.getElementById("quickCheckin").addEventListener("click", () => {
   openSheet(dayKey(new Date()));
 });
+
+/* FAB beim Runter-Scrollen ausblenden (nur Mobile / Touch) */
+(() => {
+  const fab = document.getElementById("quickCheckin");
+  if (!fab) return;
+  const mq = window.matchMedia("(max-width: 640px), (hover: none)");
+  let lastY = window.scrollY;
+  let ticking = false;
+  const SHOW_THRESHOLD = 6;
+  const HIDE_THRESHOLD = 10;
+  const onScroll = () => {
+    if (!mq.matches) { fab.classList.remove("fab--hidden"); ticking = false; return; }
+    const y = window.scrollY;
+    const dy = y - lastY;
+    if (y < 80) {
+      fab.classList.remove("fab--hidden");
+    } else if (dy > HIDE_THRESHOLD) {
+      fab.classList.add("fab--hidden");
+      lastY = y;
+    } else if (dy < -SHOW_THRESHOLD) {
+      fab.classList.remove("fab--hidden");
+      lastY = y;
+    }
+    ticking = false;
+  };
+  window.addEventListener("scroll", () => {
+    if (!ticking) { requestAnimationFrame(onScroll); ticking = true; }
+  }, { passive: true });
+  mq.addEventListener?.("change", () => {
+    if (!mq.matches) fab.classList.remove("fab--hidden");
+  });
+})();
 
 /* Info-Karten (<details class="info">): explizites Toggle statt nativem.
    Vermeidet Race-Conditions zwischen Default-Action und Click-Listener,
