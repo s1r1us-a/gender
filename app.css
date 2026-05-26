@@ -1389,7 +1389,7 @@
     isolation: isolate;
   }
   body.viewer-mode .viewer-blur > * {
-    filter: blur(10px);
+    filter: blur(20px);
     pointer-events: none;
     user-select: none;
   }
