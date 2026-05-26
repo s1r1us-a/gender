@@ -12,6 +12,7 @@ import {
   filterDataByRange, computeTransitions,
   detectFirstSeenTag, detectFirstSeenCombo, detectDecliningTag, detectRangeShrinking
 } from "./stats.js";
+import { normalizeTags } from "./format.js";
 
 /* ---------- avg ---------- */
 test("avg: leer → null", () => assert.equal(avg([]), null));
@@ -92,6 +93,63 @@ test("computeStats: ein Tag, zwei Einträge", () => {
   assert.equal(s.allEntries.length, 2);
   assert.equal(s.byOrt["Büro"].count, 2);
   assert.equal(s.byBefinden["ruhig"].sum, 100);
+});
+
+test("normalizeTags: string, array, null, leer, gemischt", () => {
+  assert.deepEqual(normalizeTags(null), []);
+  assert.deepEqual(normalizeTags(undefined), []);
+  assert.deepEqual(normalizeTags(""), []);
+  assert.deepEqual(normalizeTags("  "), []);
+  assert.deepEqual(normalizeTags("ruhig"), ["ruhig"]);
+  assert.deepEqual(normalizeTags("  ruhig  "), ["ruhig"]);
+  assert.deepEqual(normalizeTags(["ruhig", "müde"]), ["ruhig", "müde"]);
+  assert.deepEqual(normalizeTags([]), []);
+  assert.deepEqual(normalizeTags(["a", "", null, "b"]), ["a", "b"]);
+  assert.deepEqual(normalizeTags(["  a  ", "b"]), ["a", "b"]);
+});
+
+test("computeStats: Mehrfach-Befinden zählt jeden Tag separat", () => {
+  const data = {
+    "2026-05-26": {
+      e1: { value: 30, ts: 1000, ort: "Büro", befinden: ["ruhig", "müde"] },
+      e2: { value: 70, ts: 2000, ort: "Büro", befinden: "ruhig" }
+    }
+  };
+  const s = computeStats(data);
+  // ruhig taucht 2× auf (e1+e2), müde 1× (e1)
+  assert.equal(s.byBefinden["ruhig"].count, 2);
+  assert.equal(s.byBefinden["ruhig"].sum, 100);
+  assert.equal(s.byBefinden["müde"].count, 1);
+  assert.equal(s.byBefinden["müde"].sum, 30);
+  // Combo: Büro×ruhig = 2, Büro×müde = 1
+  assert.equal(s.byCombo["Büro␟ruhig"].count, 2);
+  assert.equal(s.byCombo["Büro␟müde"].count, 1);
+  // Tagesdurchschnitt zählt e1 nur 1× (nicht pro Tag verdoppelt)
+  assert.equal(s.dayAvgs["2026-05-26"], 50);
+});
+
+test("computeStats: Begleitung als String und Array (Rückwärtskompat)", () => {
+  const data = {
+    "2026-05-26": {
+      e1: { value: 40, ts: 1000, begleitung: "Alex" },
+      e2: { value: 60, ts: 2000, begleitung: ["Alex", "Sam"] }
+    }
+  };
+  const s = computeStats(data);
+  assert.equal(s.byBegleitung["Alex"].count, 2);
+  assert.equal(s.byBegleitung["Alex"].sum, 100);
+  assert.equal(s.byBegleitung["Sam"].count, 1);
+  assert.equal(s.byBegleitung["Sam"].sum, 60);
+});
+
+test("computeStats: ohne Tags bleibt byBegleitung leer", () => {
+  const data = {
+    "2026-05-26": {
+      e1: { value: 50, ts: 1000 }
+    }
+  };
+  const s = computeStats(data);
+  assert.deepEqual(s.byBegleitung, {});
 });
 
 test("computeStats: legacy `situation` wird als `ort` gelesen", () => {

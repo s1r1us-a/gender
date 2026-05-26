@@ -811,10 +811,15 @@ function computeInsights(stats) {
 
   // 6) Konsistenteste Werte pro Tag-Dimension
   const consistentTag = (byTag, tagKey, phrase) => {
+    const matches = (e, name) => {
+      const v = e[tagKey];
+      if (Array.isArray(v)) return v.includes(name);
+      return v === name;
+    };
     const withSigma = Object.entries(byTag)
       .filter(([, agg]) => agg.count >= 5)
       .map(([name, agg]) => {
-        const vals = stats.allEntries.filter(e => e[tagKey] === name).map(e => e.value);
+        const vals = stats.allEntries.filter(e => matches(e, name)).map(e => e.value);
         return { name, sigma: stddev(vals), count: agg.count };
       })
       .filter(s => s.sigma > 0)
@@ -1058,6 +1063,7 @@ export function renderAll() {
   renderWeekdays(stats);
   renderTagStats("ortStats", stats.byOrt, "Noch keine Orte erfasst — füge im Check-in einen hinzu.");
   renderTagStats("befindenStats", stats.byBefinden, "Noch kein Befinden erfasst — füge im Check-in eins hinzu.");
+  renderTagStats("begleitungStats", stats.byBegleitung, "Noch keine Begleitung erfasst — füge im Check-in jemanden hinzu.");
   renderComboMatrix(stats);
   renderTransitions(stats);
   renderInsights(fullStats);

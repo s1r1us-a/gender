@@ -3,6 +3,8 @@
    State testbar (siehe stats.test.js). Zeit-abhängige Funktionen nehmen
    einen optionalen `now`-Parameter, damit Tests Datum/Uhrzeit pinnen können. */
 
+import { normalizeTags } from "./format.js";
+
 /* ---------- Datum-Helper ---------- */
 export function dayKey(d) {
   const y = d.getFullYear();
@@ -55,6 +57,7 @@ export function computeStats(data) {
   const allEntries = [];
   const byOrt = {};
   const byBefinden = {};
+  const byBegleitung = {};
   const byCombo = {};
   const addTo = (bucketMap, name, v) => {
     if (!name) return;
@@ -70,15 +73,23 @@ export function computeStats(data) {
       if (isNaN(v)) continue;
       vals.push(v);
       const ort = (e.ort ?? e.situation ?? "").trim();
-      const befinden = (e.befinden || "").trim();
-      allEntries.push({ dk, id, value: v, ts: e.ts, ort, befinden });
+      const befindenTags = normalizeTags(e.befinden);
+      const begleitungTags = normalizeTags(e.begleitung);
+      allEntries.push({
+        dk, id, value: v, ts: e.ts, ort,
+        befinden: befindenTags,
+        begleitung: begleitungTags
+      });
       addTo(byOrt, ort, v);
-      addTo(byBefinden, befinden, v);
-      if (ort && befinden) {
-        const key = ort + "␟" + befinden;
-        if (!byCombo[key]) byCombo[key] = { ort, befinden, sum: 0, count: 0 };
-        byCombo[key].sum += v;
-        byCombo[key].count += 1;
+      for (const b of befindenTags) addTo(byBefinden, b, v);
+      for (const g of begleitungTags) addTo(byBegleitung, g, v);
+      if (ort && befindenTags.length) {
+        for (const b of befindenTags) {
+          const key = ort + "␟" + b;
+          if (!byCombo[key]) byCombo[key] = { ort, befinden: b, sum: 0, count: 0 };
+          byCombo[key].sum += v;
+          byCombo[key].count += 1;
+        }
       }
     }
     if (vals.length) {
@@ -89,7 +100,7 @@ export function computeStats(data) {
   }
   return {
     dayAvgs, dayCounts, daySwings,
-    allEntries, byOrt, byBefinden, byCombo,
+    allEntries, byOrt, byBefinden, byBegleitung, byCombo,
     dayKeys: Object.keys(dayAvgs).sort()
   };
 }
@@ -228,7 +239,9 @@ export function computeTransitions(stats) {
    strukturierte Daten zurück (kein Text), damit der Renderer die
    Sprache übernimmt und die Detektoren testbar bleiben. */
 
-/* Orte/Befinden, die innerhalb der letzten `windowDays` erstmals auftauchen. */
+/* Orte/Befinden/Begleitung, die innerhalb der letzten `windowDays` erstmals
+   auftauchen. Bei Array-Tags (befinden, begleitung) wird jeder Tag einzeln
+   bewertet. */
 export function detectFirstSeenTag(stats, tagField, windowDays = 14, now = new Date()) {
   const cutoff = new Date(now);
   cutoff.setHours(0, 0, 0, 0);
@@ -238,13 +251,19 @@ export function detectFirstSeenTag(stats, tagField, windowDays = 14, now = new D
   const countInWindow = {};
   let valueSumInWindow = {};
   for (const e of stats.allEntries) {
-    const tag = (e[tagField] || "").trim();
-    if (!tag) continue;
     if (!Number.isFinite(e.ts)) continue;
-    if (earliest[tag] == null || e.ts < earliest[tag]) earliest[tag] = e.ts;
-    if (e.ts >= cutoffMs) {
-      countInWindow[tag] = (countInWindow[tag] || 0) + 1;
-      valueSumInWindow[tag] = (valueSumInWindow[tag] || 0) + e.value;
+    const raw = e[tagField];
+    const tags = Array.isArray(raw)
+      ? raw
+      : (raw ? [String(raw).trim()] : []);
+    for (const tagRaw of tags) {
+      const tag = (tagRaw || "").trim();
+      if (!tag) continue;
+      if (earliest[tag] == null || e.ts < earliest[tag]) earliest[tag] = e.ts;
+      if (e.ts >= cutoffMs) {
+        countInWindow[tag] = (countInWindow[tag] || 0) + 1;
+        valueSumInWindow[tag] = (valueSumInWindow[tag] || 0) + e.value;
+      }
     }
   }
   const out = [];
@@ -275,12 +294,18 @@ export function detectFirstSeenCombo(stats, windowDays = 14, now = new Date()) {
   const counts = {};
   for (const e of stats.allEntries) {
     const ort = (e.ort || "").trim();
-    const bef = (e.befinden || "").trim();
-    if (!ort || !bef) continue;
+    if (!ort) continue;
     if (!Number.isFinite(e.ts)) continue;
-    const key = ort + "␟" + bef;
-    if (earliest[key] == null || e.ts < earliest[key]) earliest[key] = e.ts;
-    if (e.ts >= cutoffMs) counts[key] = (counts[key] || 0) + 1;
+    const befTags = Array.isArray(e.befinden)
+      ? e.befinden
+      : (e.befinden ? [String(e.befinden).trim()] : []);
+    for (const befRaw of befTags) {
+      const bef = (befRaw || "").trim();
+      if (!bef) continue;
+      const key = ort + "␟" + bef;
+      if (earliest[key] == null || e.ts < earliest[key]) earliest[key] = e.ts;
+      if (e.ts >= cutoffMs) counts[key] = (counts[key] || 0) + 1;
+    }
   }
   const out = [];
   for (const key in earliest) {
@@ -307,11 +332,17 @@ export function detectDecliningTag(stats, tagField, windowDays = 30, minPriorCou
   const recent = {};
   const prior = {};
   for (const e of stats.allEntries) {
-    const tag = (e[tagField] || "").trim();
-    if (!tag) continue;
     if (!Number.isFinite(e.ts)) continue;
-    if (e.ts >= recentMs) recent[tag] = (recent[tag] || 0) + 1;
-    else if (e.ts >= priorMs) prior[tag] = (prior[tag] || 0) + 1;
+    const raw = e[tagField];
+    const tags = Array.isArray(raw)
+      ? raw
+      : (raw ? [String(raw).trim()] : []);
+    for (const tagRaw of tags) {
+      const tag = (tagRaw || "").trim();
+      if (!tag) continue;
+      if (e.ts >= recentMs) recent[tag] = (recent[tag] || 0) + 1;
+      else if (e.ts >= priorMs) prior[tag] = (prior[tag] || 0) + 1;
+    }
   }
   const out = [];
   for (const tag in prior) {

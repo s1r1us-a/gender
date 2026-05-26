@@ -88,3 +88,17 @@ export function escapeHtml(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
   }[ch]));
 }
+
+/* Tag-Felder (befinden, begleitung) akzeptieren rückwärts­kompatibel
+   Strings ODER String-Arrays. Diese Helfer-Funktion normalisiert beide
+   Formen in ein sauberes String-Array (getrimmt, ohne Leereinträge). */
+export function normalizeTags(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map(s => (s == null ? "" : String(s).trim()))
+      .filter(Boolean);
+  }
+  const s = String(value).trim();
+  return s ? [s] : [];
+}

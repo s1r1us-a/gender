@@ -176,6 +176,8 @@
       <div class="situation-stats" id="ortStats"></div>
       <div class="section-title" style="margin-top:18px">Wie fühlst du dich in welchem Befinden?</div>
       <div class="situation-stats" id="befindenStats"></div>
+      <div class="section-title" style="margin-top:18px">Wie fühlst du dich mit welcher Begleitung?</div>
+      <div class="situation-stats" id="begleitungStats"></div>
       <div class="section-title" style="margin-top:18px">Ort × Befinden-Matrix
         <details class="info"><summary aria-label="Infos zur Matrix">ⓘ</summary>
           <p>Erst die Kombination aus <strong>wo</strong> du bist und <strong>wie</strong> es dir geht macht Muster sichtbar. Eine Zelle zeigt den durchschnittlichen Gender-Wert (Farbe) und die Anzahl Check-ins (Zahl). Bei wenigen Einträgen (n&lt;3) ist die Zelle abgedämpft — vorsichtig interpretieren.</p>
@@ -255,13 +257,15 @@
       </select>
       <input type="text" id="ortInput" placeholder="Eigenen Ort eingeben" hidden />
     </div>
-    <div class="situation-row befinden-row">
-      <label for="befindenSelect">Befinden</label>
-      <select id="befindenSelect">
-        <option value="">— keins —</option>
-        <option value="__new__">+ neues Befinden…</option>
-      </select>
-      <input type="text" id="befindenInput" placeholder="Eigenes Befinden eingeben" hidden />
+    <div class="situation-row befinden-row chips-row">
+      <label id="befindenLabel">Befinden <span class="optional">optional · mehrere möglich</span></label>
+      <div class="tag-chips" id="befindenChips" role="group" aria-labelledby="befindenLabel"></div>
+      <input type="text" id="befindenNewInput" placeholder="Neues Befinden eingeben" hidden />
+    </div>
+    <div class="situation-row begleitung-row chips-row">
+      <label id="begleitungLabel">Begleitung <span class="optional">optional · mehrere möglich</span></label>
+      <div class="tag-chips" id="begleitungChips" role="group" aria-labelledby="begleitungLabel"></div>
+      <input type="text" id="begleitungNewInput" placeholder="Wer war dabei?" hidden />
     </div>
     <div class="note-row">
       <label for="noteInput">Notiz <span class="optional">optional</span></label>
