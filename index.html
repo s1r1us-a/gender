@@ -76,6 +76,22 @@
       <div class="grid" id="grid"></div>
     </section>
 
+    <section class="card range-card" id="rangeCard">
+      <div class="range-row">
+        <div class="range-label">
+          <span class="range-label-text">Zeitraum für Statistiken</span>
+          <span class="range-info" id="rangeInfo"></span>
+        </div>
+        <div class="range-seg" id="rangeSeg" role="radiogroup" aria-label="Zeitraum auswählen">
+          <button type="button" data-range="7d"  role="radio">7 T</button>
+          <button type="button" data-range="30d" role="radio">30 T</button>
+          <button type="button" data-range="90d" role="radio">90 T</button>
+          <button type="button" data-range="1y"  role="radio">1 J</button>
+          <button type="button" data-range="all" role="radio">Alles</button>
+        </div>
+      </div>
+    </section>
+
     <section class="card">
       <div class="section-title">Dein Spektrum
         <details class="info"><summary aria-label="Infos zu dieser Statistik">ⓘ</summary>
@@ -155,6 +171,12 @@
         </details>
       </div>
       <div class="combo-matrix" id="comboMatrix"></div>
+      <div class="section-title" style="margin-top:18px">Bucket-Übergänge von Tag zu Tag
+        <details class="info"><summary aria-label="Infos zur Übergangsmatrix">ⓘ</summary>
+          <p>Wenn du an einem Tag <strong>im Bucket X</strong> bist (♀ / ⚧ / ♂): wie häufig bleibst du am nächsten Tag dort, wie häufig kippt es woanders hin? Die Diagonale (X→X) zeigt deine <strong>Beharrungstendenz</strong>, die Off-Diagonalen deine <strong>Wechselrichtungen</strong>. Erst aussagekräftig, wenn du viele zusammenhängende Tage erfasst hast — Lücken zählen nicht mit.</p>
+        </details>
+      </div>
+      <div class="transitions" id="transitions"></div>
     </section>
 
     <section class="card">

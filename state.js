@@ -3,9 +3,20 @@
    Module (z.B. render) reagieren sollen. Bewusst minimal — keine Proxies,
    keine reaktiven Wrapper, damit der Code lesbar bleibt. */
 
+const LS_RANGE = "tracker.range.v1";
+const VALID_RANGES = new Set(["7d", "30d", "90d", "1y", "all"]);
+function loadRange() {
+  try {
+    const v = localStorage.getItem(LS_RANGE);
+    return VALID_RANGES.has(v) ? v : "all";
+  } catch { return "all"; }
+}
+
 export const state = {
   /** dayKey → entryId → Entry */
   data: {},
+  /** Aktiver Zeitraum für Statistik-Karten (#8). */
+  statsRange: loadRange(),
   /** Aktuell im Kalender angezeigter Monat. */
   viewDate: new Date(),
   /** Aktuell im Sheet ausgewählter Tag oder null. */
@@ -26,6 +37,12 @@ export const state = {
 
 export function canWrite() {
   return state.currentRole === "admin";
+}
+
+export function setStatsRange(r) {
+  if (!VALID_RANGES.has(r)) return;
+  state.statsRange = r;
+  try { localStorage.setItem(LS_RANGE, r); } catch {}
 }
 
 const listeners = new Set();

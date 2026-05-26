@@ -8,7 +8,9 @@ import {
   dayKey, parseDayKey,
   avg, stddev, median, percentile, bucket,
   computeStats, computeCoverage, computePeriodAggregates, computeFluidityIndex,
-  computeBuckets, computeWeekdayMedians
+  computeBuckets, computeWeekdayMedians,
+  filterDataByRange, computeTransitions,
+  detectFirstSeenTag, detectFirstSeenCombo, detectDecliningTag, detectRangeShrinking
 } from "./stats.js";
 
 /* ---------- avg ---------- */
@@ -272,4 +274,195 @@ test("computeWeekdayMedians: leerer Tag → null Median, lowN false", () => {
     assert.equal(day.n, 0);
     assert.equal(day.lowN, false);
   }
+});
+
+/* ---------- filterDataByRange (#8) ---------- */
+test("filterDataByRange: 'all' und unbekannt geben Original zurück", () => {
+  const data = { "2026-05-26": { e1: { value: 50, ts: 0 } } };
+  assert.strictEqual(filterDataByRange(data, "all"), data);
+  assert.strictEqual(filterDataByRange(data, ""), data);
+  assert.strictEqual(filterDataByRange(data, "xyz"), data);
+});
+
+test("filterDataByRange: 7d nimmt nur die letzten 7 Kalendertage", () => {
+  const now = new Date(2026, 4, 26); // Di 26. Mai 2026
+  const data = {
+    "2026-05-26": { e: { value: 50, ts: 0 } }, // heute
+    "2026-05-20": { e: { value: 50, ts: 0 } }, // 6 Tage vorher — inkludiert
+    "2026-05-19": { e: { value: 50, ts: 0 } }, // 7 Tage vorher — knapp draußen
+    "2026-04-01": { e: { value: 50, ts: 0 } }, // weit weg
+  };
+  const r = filterDataByRange(data, "7d", now);
+  assert.ok(r["2026-05-26"]);
+  assert.ok(r["2026-05-20"]);
+  assert.equal(r["2026-05-19"], undefined);
+  assert.equal(r["2026-04-01"], undefined);
+});
+
+test("filterDataByRange: 1y nimmt 365 Tage", () => {
+  const now = new Date(2026, 4, 26);
+  const data = {
+    "2025-05-27": { e: { value: 50, ts: 0 } }, // 365 Tage vorher → genau die Kante
+    "2025-05-26": { e: { value: 50, ts: 0 } }, // 366 Tage vorher → raus
+  };
+  const r = filterDataByRange(data, "1y", now);
+  assert.ok(r["2025-05-27"]);
+  assert.equal(r["2025-05-26"], undefined);
+});
+
+/* ---------- computeTransitions (#11) ---------- */
+test("computeTransitions: leere Stats → alle Counts 0", () => {
+  const s = computeStats({});
+  const t = computeTransitions(s);
+  assert.equal(t.total, 0);
+  for (const row of t.counts) for (const c of row) assert.equal(c, 0);
+});
+
+test("computeTransitions: drei aufeinander folgende ♀-Tage → 2 f→f Übergänge", () => {
+  const data = {
+    "2026-05-24": { e: { value: 10, ts: 1 } },
+    "2026-05-25": { e: { value: 15, ts: 2 } },
+    "2026-05-26": { e: { value: 20, ts: 3 } },
+  };
+  const s = computeStats(data);
+  const t = computeTransitions(s);
+  assert.equal(t.counts[0][0], 2);   // f→f
+  assert.equal(t.total, 2);
+  assert.equal(t.probs[0][0], 1);
+});
+
+test("computeTransitions: ein f→m-Wechsel über Tageskante", () => {
+  const data = {
+    "2026-05-25": { e: { value: 10, ts: 1 } }, // f
+    "2026-05-26": { e: { value: 90, ts: 2 } }, // m
+  };
+  const s = computeStats(data);
+  const t = computeTransitions(s);
+  assert.equal(t.counts[0][2], 1);  // f → m
+  assert.equal(t.total, 1);
+});
+
+test("computeTransitions: Lücke zwischen Tagen wird übersprungen", () => {
+  const data = {
+    "2026-05-20": { e: { value: 10, ts: 1 } }, // f
+    "2026-05-26": { e: { value: 90, ts: 2 } }, // m, 6 Tage später
+  };
+  const s = computeStats(data);
+  const t = computeTransitions(s);
+  assert.equal(t.total, 0); // kein Direkt-Nachbar
+});
+
+/* ---------- detectFirstSeenTag (#17) ---------- */
+test("detectFirstSeenTag: Ort, der erstmals heute auftaucht", () => {
+  const now = new Date(2026, 4, 26);
+  const data = {
+    "2026-05-26": { e: { value: 50, ts: now.getTime() - 1000, ort: "Neuer Ort" } }
+  };
+  const s = computeStats(data);
+  const r = detectFirstSeenTag(s, "ort", 14, now);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].name, "Neuer Ort");
+  assert.equal(r[0].count, 1);
+});
+
+test("detectFirstSeenTag: Ort vor Fenster ist nicht neu", () => {
+  const now = new Date(2026, 4, 26);
+  const longAgo = new Date(2026, 0, 1).getTime();
+  const data = {
+    "2026-01-01": { a: { value: 50, ts: longAgo, ort: "Büro" } },
+    "2026-05-26": { b: { value: 50, ts: now.getTime() - 1000, ort: "Büro" } }
+  };
+  const s = computeStats(data);
+  const r = detectFirstSeenTag(s, "ort", 14, now);
+  assert.equal(r.length, 0);
+});
+
+/* ---------- detectFirstSeenCombo (#17) ---------- */
+test("detectFirstSeenCombo: Ort×Befinden erstmals im Fenster", () => {
+  const now = new Date(2026, 4, 26);
+  const data = {
+    "2026-05-26": { e: { value: 50, ts: now.getTime() - 1000, ort: "Büro", befinden: "entspannt" } }
+  };
+  const s = computeStats(data);
+  const r = detectFirstSeenCombo(s, 14, now);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].ort, "Büro");
+  assert.equal(r[0].befinden, "entspannt");
+});
+
+/* ---------- detectDecliningTag (#17) ---------- */
+test("detectDecliningTag: Tag mit -65% Frequenz erkennt Decline", () => {
+  const now = new Date(2026, 4, 26);
+  const dayMs = 86400000;
+  // Prior-Fenster: 30–60 Tage vor heute → 10 Vorkommen
+  // Recent-Fenster: 0–29 Tage vor heute → 3 Vorkommen
+  const entries = [];
+  for (let i = 0; i < 10; i++) {
+    entries.push({ id: "p" + i, value: 50, ts: now.getTime() - (30 + i) * dayMs, befinden: "gestresst" });
+  }
+  for (let i = 0; i < 3; i++) {
+    entries.push({ id: "r" + i, value: 50, ts: now.getTime() - i * dayMs, befinden: "gestresst" });
+  }
+  // In data-Form bringen
+  const data = {};
+  for (const e of entries) {
+    const d = new Date(e.ts);
+    const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (!data[dk]) data[dk] = {};
+    data[dk][e.id] = { value: e.value, ts: e.ts, befinden: e.befinden };
+  }
+  const s = computeStats(data);
+  const r = detectDecliningTag(s, "befinden", 30, 5, now);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].name, "gestresst");
+  assert.equal(r[0].prior, 10);
+  assert.equal(r[0].recent, 3);
+  assert.ok(r[0].drop > 0.5);
+});
+
+test("detectDecliningTag: stabile Frequenz wird nicht erkannt", () => {
+  const now = new Date(2026, 4, 26);
+  const dayMs = 86400000;
+  const data = {};
+  for (let i = 0; i < 6; i++) {
+    const ts = now.getTime() - (5 + i * 5) * dayMs;
+    const d = new Date(ts);
+    const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (!data[dk]) data[dk] = {};
+    data[dk]["e" + i] = { value: 50, ts, befinden: "gestresst" };
+  }
+  const s = computeStats(data);
+  const r = detectDecliningTag(s, "befinden", 30, 5, now);
+  assert.equal(r.length, 0);
+});
+
+/* ---------- detectRangeShrinking (#17) ---------- */
+test("detectRangeShrinking: stabilere letzte 14 Tage werden erkannt", () => {
+  const now = new Date(2026, 4, 26);
+  const dayMs = 86400000;
+  // Recent (Tag 0..13): alle Werte 50 → σ ≈ 0
+  // Prior (Tag 14..27): Werte schwanken 20↔80 → σ ≈ 30
+  const data = {};
+  for (let i = 0; i < 14; i++) {
+    const ts = now.getTime() - i * dayMs;
+    const d = new Date(ts);
+    const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    data[dk] = { e: { value: 50, ts } };
+  }
+  for (let i = 14; i < 28; i++) {
+    const ts = now.getTime() - i * dayMs;
+    const d = new Date(ts);
+    const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    data[dk] = { e: { value: i % 2 ? 20 : 80, ts } };
+  }
+  const s = computeStats(data);
+  const r = detectRangeShrinking(s, 14, 7, now);
+  assert.equal(r.found, true);
+  assert.ok(r.sdRecent < r.sdPrior * 0.5);
+});
+
+test("detectRangeShrinking: zu wenig Daten → found false", () => {
+  const s = computeStats({});
+  const r = detectRangeShrinking(s, 14, 7, new Date(2026, 4, 26));
+  assert.equal(r.found, false);
 });

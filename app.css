@@ -1094,6 +1094,110 @@
   body.viewer-mode .cell { cursor: default; }
 
   /* ============================================================
+     Zeitfenster-Toggle (#8): segmented control über allen Stats.
+     ============================================================ */
+  .range-card { padding: 12px 14px; }
+  .range-row {
+    display: flex; align-items: center; gap: 14px;
+    flex-wrap: wrap; justify-content: space-between;
+  }
+  .range-label {
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 0;
+  }
+  .range-label-text {
+    font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.8px;
+  }
+  .range-info {
+    font-size: 13px; color: var(--text-dim);
+    line-height: 1.2;
+  }
+  .range-seg {
+    display: inline-flex;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .range-seg button {
+    appearance: none; background: transparent; border: none;
+    color: var(--text-dim);
+    font-size: 13px; font-weight: 600;
+    padding: 6px 11px; border-radius: 9px;
+    cursor: pointer;
+    transition: background .14s ease, color .14s ease;
+  }
+  .range-seg button:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .range-seg button[aria-checked="true"] {
+    background: linear-gradient(135deg, var(--flag-pink) 0%, var(--flag-purple) 100%);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(190, 24, 214, 0.35);
+  }
+  @media (max-width: 480px) {
+    .range-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    .range-seg { justify-content: space-between; }
+    .range-seg button { flex: 1; padding: 8px 4px; font-size: 12px; }
+  }
+
+  /* ============================================================
+     Bucket-Übergangs-Matrix (#11): 3×3 Markov-Grid.
+     ============================================================ */
+  .transitions {
+    display: grid;
+    grid-template-columns: minmax(72px, 1fr) repeat(3, 1fr);
+    gap: 4px;
+  }
+  .trans-corner { /* leere obere-linke Zelle */ }
+  .trans-col-head,
+  .trans-row-head {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+    padding: 6px 4px;
+    color: var(--text-dim);
+  }
+  .trans-col-head .arrow,
+  .trans-row-head .arrow {
+    font-size: 10px; color: var(--text-faint); margin: 0 3px;
+  }
+  .trans-cell {
+    position: relative;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 14px 4px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    min-height: 64px;
+    transition: transform .15s ease, box-shadow .2s ease;
+  }
+  .trans-cell.is-diagonal {
+    /* Stabilität visuell hervorheben */
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+  }
+  .trans-cell.is-empty {
+    color: var(--text-faint);
+    background: rgba(255,255,255,0.02);
+  }
+  .trans-cell .pct {
+    font-size: 18px; font-weight: 700;
+    line-height: 1;
+  }
+  .trans-cell .n {
+    font-size: 10px; color: var(--text-dim);
+    margin-top: 4px; letter-spacing: 0.3px;
+  }
+  .transitions-empty {
+    color: var(--text-dim); font-size: 13px;
+    padding: 10px 4px;
+  }
+  @media (max-width: 480px) {
+    .transitions { grid-template-columns: minmax(56px, 1fr) repeat(3, 1fr); }
+    .trans-cell .pct { font-size: 15px; }
+  }
+
+  /* ============================================================
      Focus-States (#23): einheitlicher, deutlich sichtbarer Ring.
      Weißer Außenrand + violetter Glow funktioniert auf hellen
      und dunklen Karten gleichermaßen gut.

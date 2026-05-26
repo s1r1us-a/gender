@@ -1,12 +1,14 @@
 /* Render-Schicht: pure DOM-Erzeugung aus state.data + abgeleiteten Stats.
    Selbst keine Mutation am State — abonniert state.notify und re-rendert. */
 
-import { state, subscribe } from "./state.js";
+import { state, subscribe, setStatsRange } from "./state.js";
 import {
   dayKey, parseDayKey,
   avg, stddev, median, percentile, bucket,
   computeStats, computeCoverage, computePeriodAggregates, computeFluidityIndex,
-  computeBuckets, computeWeekdayMedians
+  computeBuckets, computeWeekdayMedians,
+  filterDataByRange, computeTransitions,
+  detectFirstSeenTag, detectFirstSeenCombo, detectDecliningTag, detectRangeShrinking
 } from "./stats.js";
 import {
   SCALE, scaleIndexFromValue,
@@ -14,6 +16,14 @@ import {
   setText, escapeHtml
 } from "./format.js";
 import { openSheet, syncSheetAfterRender } from "./ui.js";
+
+const RANGE_LABELS = {
+  "7d": "letzte 7 Tage",
+  "30d": "letzte 30 Tage",
+  "90d": "letzte 90 Tage",
+  "1y":  "letztes Jahr",
+  "all": "alle Daten"
+};
 
 const MONTH_NAMES = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 
@@ -835,6 +845,56 @@ function computeInsights(stats) {
     }
   }
 
+  // 9) Neuer Ort / neues Befinden (#17): erstmals in den letzten 14 Tagen
+  const recentOrte = detectFirstSeenTag(stats, "ort", 14);
+  for (const t of recentOrte.slice(0, 1)) {
+    out.push({
+      weight: 58,
+      color: valueToColor(t.avg != null ? t.avg : 50).hex,
+      text: `Neu im Sprachgebrauch: <b>${escapeHtml(t.name)}</b> (${t.count} Check-in${t.count === 1 ? "" : "s"}${t.avg != null ? ", ⌀ " + t.avg.toFixed(0) : ""}).`
+    });
+  }
+  const recentBef = detectFirstSeenTag(stats, "befinden", 14);
+  for (const t of recentBef.slice(0, 1)) {
+    out.push({
+      weight: 56,
+      color: valueToColor(t.avg != null ? t.avg : 50).hex,
+      text: `Erstmals als Befinden: <b>${escapeHtml(t.name)}</b> (${t.count} Check-in${t.count === 1 ? "" : "s"}).`
+    });
+  }
+
+  // 10) Neue Ort×Befinden-Kombo (#17)
+  const recentCombos = detectFirstSeenCombo(stats, 14);
+  for (const c of recentCombos.slice(0, 1)) {
+    if (c.count >= 2) {
+      out.push({
+        weight: 54,
+        color: "#c79bd0",
+        text: `Erstmals: <b>${escapeHtml(c.ort)} · ${escapeHtml(c.befinden)}</b> (n=${c.count}).`
+      });
+    }
+  }
+
+  // 11) Seltener werdendes Befinden (#17)
+  const declining = detectDecliningTag(stats, "befinden", 30, 5);
+  for (const d of declining.slice(0, 1)) {
+    out.push({
+      weight: 52,
+      color: "#ffb86b",
+      text: `Du taggst <b>${escapeHtml(d.name)}</b> seit einem Monat deutlich seltener (${d.prior} → ${d.recent}, −${Math.round(d.drop * 100)} %).`
+    });
+  }
+
+  // 12) Wert-Range schrumpft (#17)
+  const shrink = detectRangeShrinking(stats, 14, 7);
+  if (shrink.found) {
+    out.push({
+      weight: 53,
+      color: "#9b8fb5",
+      text: `Deine Werte sind in den letzten 2 Wochen <b>stabiler</b> geworden (σ ${shrink.sdRecent.toFixed(0)} statt ${shrink.sdPrior.toFixed(0)} davor).`
+    });
+  }
+
   // 8) All-Time-Rekord innerhalb der letzten 14 Tage
   if (dayKeysSorted.length >= 3) {
     let minDay = null, maxDay = null;
@@ -870,6 +930,79 @@ function computeInsights(stats) {
   return out.sort((a, b) => b.weight - a.weight);
 }
 
+/* ---------- Zeitfenster-Toggle (#8) ---------- */
+function renderRangeBar(stats) {
+  const seg = document.getElementById("rangeSeg");
+  const info = document.getElementById("rangeInfo");
+  if (!seg) return;
+  // Aktiver Knopf
+  for (const btn of seg.querySelectorAll("button")) {
+    const isActive = btn.dataset.range === state.statsRange;
+    btn.setAttribute("aria-checked", isActive ? "true" : "false");
+  }
+  if (info) {
+    const days = stats.dayKeys.length;
+    const lbl = RANGE_LABELS[state.statsRange] || "alle Daten";
+    info.textContent = days > 0
+      ? `${lbl} · ${days} Tag${days === 1 ? "" : "e"} mit Check-ins`
+      : `${lbl} · keine Daten`;
+  }
+}
+
+/* ---------- Bucket-Übergangs-Matrix (#11) ---------- */
+function renderTransitions(stats) {
+  const container = document.getElementById("transitions");
+  if (!container) return;
+  const t = computeTransitions(stats);
+  if (t.total === 0) {
+    container.innerHTML = `<div class="transitions-empty">Übergänge erscheinen, sobald du mehrere Tage <b>direkt hintereinander</b> erfasst hast.</div>`;
+    return;
+  }
+  const labels = [
+    { key: "f", sym: "♀", word: "weiblich", color: valueToColor(17).hex },
+    { key: "n", sym: "⚧", word: "fluid",    color: valueToColor(50).hex },
+    { key: "m", sym: "♂", word: "männlich", color: valueToColor(83).hex }
+  ];
+  let html = `<div class="trans-corner"></div>`;
+  for (const c of labels) {
+    html += `<div class="trans-col-head" title="am Folgetag ${c.word}"><span style="color:${c.color}">${c.sym}</span><span class="arrow">→</span></div>`;
+  }
+  for (let r = 0; r < 3; r++) {
+    const rl = labels[r];
+    html += `<div class="trans-row-head" title="am Tag ${rl.word}"><span style="color:${rl.color}">${rl.sym}</span><span class="arrow">↓</span></div>`;
+    for (let c = 0; c < 3; c++) {
+      const n = t.counts[r][c];
+      const p = t.probs[r][c];
+      const isDiag = r === c;
+      if (p == null || t.rowTotals[r] === 0) {
+        html += `<div class="trans-cell is-empty${isDiag ? " is-diagonal" : ""}"><span class="pct">—</span><span class="n">keine Daten</span></div>`;
+        continue;
+      }
+      const pct = Math.round(p * 100);
+      // Hintergrund-Tönung: stärkste Zellen pro Zeile bekommen mehr Sättigung.
+      const targetColor = labels[c].color;
+      const intensity = Math.max(0.10, Math.min(0.95, p));
+      const bg = hexToRgba(targetColor, intensity * 0.55 + 0.04);
+      const txt = intensity > 0.55 ? "#1a0f29" : "var(--text)";
+      html += `<div class="trans-cell${isDiag ? " is-diagonal" : ""}"
+                 style="background:${bg};color:${txt}"
+                 title="${rl.word} → ${labels[c].word}: ${pct}% (${n} von ${t.rowTotals[r]} Übergängen)">
+        <span class="pct">${pct}%</span>
+        <span class="n">n=${n}</span>
+      </div>`;
+    }
+  }
+  container.innerHTML = html;
+}
+
+function hexToRgba(hex, a) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a.toFixed(2)})`;
+}
+
 function renderInsights(stats) {
   const container = document.getElementById("insights");
   const insights = computeInsights(stats);
@@ -903,26 +1036,62 @@ function applyMoodBackground(stats) {
 
 export function renderAll() {
   renderGrid();
-  const stats = computeStats(state.data);
-  applyMoodBackground(stats);
-  renderHeroToday(stats);
+  /* Stats werden zweifach berechnet: einmal mit allen Daten (für Karten,
+     die ihren eigenen Sinn haben — Heatmap, Hero, Sparkline, Insights),
+     einmal mit dem aktiven Zeitfenster (für alle anderen Karten). */
+  const fullStats = computeStats(state.data);
+  const stats = state.statsRange === "all"
+    ? fullStats
+    : computeStats(filterDataByRange(state.data, state.statsRange));
+
+  applyMoodBackground(fullStats);
+  renderRangeBar(stats);
+  renderHeroToday(fullStats);
   renderOverviewBars(stats);
   renderOverviewMeta(stats);
   renderFluidityIndex(stats);
   renderSpectrumHistogram(stats);
   renderBuckets(stats);
-  renderSparkline(stats);
-  renderHeatmap(stats);
+  renderSparkline(fullStats);
+  renderHeatmap(fullStats);
   renderHistogram(stats);
   renderWeekdays(stats);
   renderTagStats("ortStats", stats.byOrt, "Noch keine Orte erfasst — füge im Check-in einen hinzu.");
   renderTagStats("befindenStats", stats.byBefinden, "Noch kein Befinden erfasst — füge im Check-in eins hinzu.");
   renderComboMatrix(stats);
-  renderInsights(stats);
+  renderTransitions(stats);
+  renderInsights(fullStats);
   renderStreaks(stats);
   syncSheetAfterRender();
 }
 
+function wireRangeBar() {
+  const seg = document.getElementById("rangeSeg");
+  if (!seg) return;
+  seg.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-range]");
+    if (!btn) return;
+    const r = btn.dataset.range;
+    if (r === state.statsRange) return;
+    setStatsRange(r);
+    renderAll();
+  });
+  // Tastatur: Pfeiltasten innerhalb der Gruppe
+  seg.addEventListener("keydown", (ev) => {
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    const btns = Array.from(seg.querySelectorAll("button[data-range]"));
+    const i = btns.indexOf(document.activeElement);
+    if (i < 0) return;
+    const next = ev.key === "ArrowRight"
+      ? btns[(i + 1) % btns.length]
+      : btns[(i - 1 + btns.length) % btns.length];
+    next.focus();
+    next.click();
+    ev.preventDefault();
+  });
+}
+
 export function initRender() {
   subscribe(renderAll);
+  wireRangeBar();
 }
