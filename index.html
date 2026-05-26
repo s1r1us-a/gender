@@ -55,11 +55,21 @@
         <div class="status" id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">verbinde…</span></div>
         <button class="header-btn" id="searchBtn" type="button" title="In Notizen suchen" aria-label="Suche öffnen">🔍</button>
         <button class="header-btn" id="helpBtn" type="button" title="Einführung" aria-label="Einführung öffnen">?</button>
+        <button class="header-btn preview-toggle-btn" id="previewToggleBtn" type="button" title="In Besucher-Vorschau umschalten" aria-label="Besucher-Vorschau umschalten" aria-pressed="false" hidden>👁</button>
         <button class="header-btn" id="exportBtn" type="button" title="Daten als JSON exportieren" aria-label="Daten als JSON exportieren">⤓</button>
         <span class="user-badge" id="userBadge" hidden></span>
         <button class="header-btn" id="logoutBtn" type="button" title="Abmelden" aria-label="Abmelden" hidden>⎋</button>
       </div>
     </header>
+
+    <div class="preview-banner" id="previewBanner" hidden role="status" aria-live="polite">
+      <span class="preview-banner-icon" aria-hidden="true">👁</span>
+      <span class="preview-banner-text">
+        <strong>Besucher-Vorschau</strong> — du siehst die App so, wie sie ein eingeloggter Besucher-Account sieht.
+        Schreib-Aktionen sind ausgeblendet.
+      </span>
+      <button type="button" class="btn-link" id="previewExitBtn">← Verlassen</button>
+    </div>
 
     <div class="flag-stripe" aria-hidden="true"></div>
 

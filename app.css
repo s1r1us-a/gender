@@ -1380,6 +1380,39 @@
   /* Zukunftstage: Cursor signalisiert „nicht erlaubt" */
   .cell.future { cursor: not-allowed; }
 
+  /* Besucher-Vorschau (nur Admin sichtbar). Toggle-Button bleibt
+     SICHTBAR im Vorschau-Modus (sonst wäre kein Exit möglich), während
+     andere Schreib-UI durch die normalen viewer-mode-Regeln verschwindet. */
+  body:not(.is-admin) #previewToggleBtn { display: none; }
+  #previewToggleBtn[hidden] { display: none; }
+  body.preview-mode #previewToggleBtn {
+    background: rgba(255, 200, 80, 0.18);
+    color: #ffd373;
+    border-color: rgba(255, 200, 80, 0.55);
+  }
+  .preview-banner {
+    display: flex; align-items: center; gap: 10px;
+    margin: 8px 0 14px;
+    padding: 10px 14px;
+    background: linear-gradient(90deg, rgba(255,200,80,0.14), rgba(255,200,80,0.06));
+    border: 1px solid rgba(255,200,80,0.40);
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 13px; line-height: 1.35;
+  }
+  .preview-banner[hidden] { display: none; }
+  .preview-banner .preview-banner-icon { font-size: 18px; line-height: 1; }
+  .preview-banner .preview-banner-text { flex: 1; min-width: 0; }
+  .preview-banner .btn-link {
+    background: transparent;
+    color: #ffd373;
+    border: 1px solid rgba(255,200,80,0.55);
+    padding: 6px 10px; border-radius: 8px;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    white-space: nowrap;
+  }
+  .preview-banner .btn-link:hover { background: rgba(255,200,80,0.15); }
+
   /* ============================================================
      Onboarding (#29): 3-Slide-Modal, auto beim ersten Login,
      manuell per ?-Button im Header.

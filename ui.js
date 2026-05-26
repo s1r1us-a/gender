@@ -1168,8 +1168,42 @@ export function initUi() {
   /* Onboarding (#29) */
   initOnboarding();
 
+  /* Besucher-Vorschau (nur für Admin sichtbar). */
+  initPreviewToggle();
+
   // First paint des Slider-Feel-Anzeige (vor erstem Daten-Render).
   updateFeel();
+}
+
+/* ---------- Besucher-Vorschau (Admin-only Toggle) ----------
+   Erlaubt dem Admin, die App so zu sehen wie ein Besucher-Account.
+   Setzt visuell `body.viewer-mode` und `body.preview-mode` (Banner).
+   Die echte Rolle (`state.currentRole`) bleibt unverändert — der Toggle
+   ist eine reine UI-Vorschau. */
+function initPreviewToggle() {
+  const btn = document.getElementById("previewToggleBtn");
+  const banner = document.getElementById("previewBanner");
+  const exitBtn = document.getElementById("previewExitBtn");
+  if (!btn || !banner || !exitBtn) return;
+
+  const setPreview = (on) => {
+    document.body.classList.toggle("viewer-mode", on);
+    document.body.classList.toggle("preview-mode", on);
+    banner.hidden = !on;
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.textContent = on ? "🚪" : "👁";
+    btn.title = on ? "Besucher-Vorschau verlassen" : "In Besucher-Vorschau umschalten";
+    btn.setAttribute("aria-label", btn.title);
+  };
+
+  btn.addEventListener("click", () => {
+    // Nur Admin darf die Vorschau aktivieren — Sicherheits-Check.
+    if (state.currentRole !== "admin") return;
+    const on = !document.body.classList.contains("preview-mode");
+    setPreview(on);
+  });
+
+  exitBtn.addEventListener("click", () => setPreview(false));
 }
 
 /* ---------- Onboarding (#29) ---------- */
