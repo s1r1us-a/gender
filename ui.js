@@ -11,6 +11,26 @@ import {
   pad, fmtTime, escapeHtml
 } from "./format.js";
 
+/* ---------- Haptik (#37) ----------
+   Web Vibration API. Wird auf iOS still ignoriert (kein Support) —
+   auf Android löst sie ein sehr kurzes Tactile-Feedback aus.
+   Bei prefers-reduced-motion: reduce komplett überspringen, weil
+   manche Nutzer*innen Vibration ebenfalls als störend empfinden. */
+const _prefersReducedMotion = (() => {
+  try { return window.matchMedia("(prefers-reduced-motion: reduce)"); }
+  catch { return { matches: false }; }
+})();
+
+function haptic(kind) {
+  if (!("vibrate" in navigator)) return;
+  if (_prefersReducedMotion.matches) return;
+  try {
+    if (kind === "save")   navigator.vibrate(12);
+    else if (kind === "delete") navigator.vibrate(20);
+    else if (kind === "error")  navigator.vibrate([8, 40, 8]);
+  } catch {}
+}
+
 /* ---------- DOM-Refs (nach initUi gesetzt) ---------- */
 let backdrop, sheet, slider;
 let feelSym, feelLabel, feelVal;
@@ -63,6 +83,7 @@ export function notifySyncIssue(text) {
   if (now - lastSyncErrorToastAt < SYNC_ERROR_TOAST_COOLDOWN_MS) return;
   lastSyncErrorToastAt = now;
   showToast(text, null, null, 4000);
+  haptic("error");
 }
 
 /* ---------- Sheet / Check-in ---------- */
@@ -316,6 +337,7 @@ function saveEntry(dk, entryId, v, ts, ort, befinden, note) {
   savePending();
   updateStatus();
   notify();
+  haptic("save");
   flushPending();
 }
 
@@ -336,6 +358,7 @@ function requestDeleteWithUndo(dk, entryId) {
   if (state.editingEntryId === entryId) state.editingEntryId = null;
   saveLocal();
   notify();
+  haptic("delete");
 
   pendingDeleteTimer = showToast("Eintrag gelöscht", "Rückgängig", () => {
     const s = pendingDeleteSnapshot;

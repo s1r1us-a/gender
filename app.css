@@ -1092,3 +1092,98 @@
   body.viewer-mode #exportBtn,
   body.viewer-mode #heroCheckinBtn { display: none !important; }
   body.viewer-mode .cell { cursor: default; }
+
+  /* ============================================================
+     Focus-States (#23): einheitlicher, deutlich sichtbarer Ring.
+     Weißer Außenrand + violetter Glow funktioniert auf hellen
+     und dunklen Karten gleichermaßen gut.
+     ============================================================ */
+  :focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+    box-shadow: 0 0 0 5px rgba(190, 24, 214, 0.55);
+  }
+  /* Slider hat Hairline-Thumb — Focus muss auf den Thumb statt das
+     unsichtbare range-Element. */
+  input[type=range].slider:focus { outline: none; }
+  input[type=range].slider:focus-visible::-webkit-slider-thumb {
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5),
+                0 0 0 6px rgba(190, 24, 214, 0.6);
+  }
+  input[type=range].slider:focus-visible::-moz-range-thumb {
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5),
+                0 0 0 6px rgba(190, 24, 214, 0.6);
+  }
+  /* Eingaben behalten Focus auch bei Mausklick (UX-Erwartung) */
+  .login-form input:focus,
+  .situation-row select:focus,
+  .situation-row input[type=text]:focus,
+  .note-row textarea:focus,
+  input[type=time]:focus {
+    outline: 2px solid rgba(255,255,255,0.85);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(190, 24, 214, 0.45);
+  }
+  /* Heatmap-Zelle: kompakter Ring + z-index, sonst schluckt der Nachbar den Rand */
+  .heatmap .hcell:focus-visible {
+    z-index: 2;
+    position: relative;
+    outline: 2px solid #fff;
+    outline-offset: 1px;
+    box-shadow: 0 0 0 3px rgba(190, 24, 214, 0.7);
+  }
+  /* Kalenderzellen + Entry-Rows brauchen den Ring innerhalb (sonst clippt overflow) */
+  .cell:focus-visible {
+    z-index: 2;
+    outline: 3px solid #fff;
+    outline-offset: -3px;
+    box-shadow: 0 0 0 4px rgba(190, 24, 214, 0.6), 0 0 24px rgba(255,255,255,0.18);
+  }
+
+  /* ============================================================
+     Reduced-Motion (#23/#37/#38): respektiert OS-Einstellung.
+     Stoppt FAB-Puls, kürzt alle Übergänge auf fast 0.
+     ============================================================ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.05s !important;
+      scroll-behavior: auto !important;
+    }
+    .fab::after { animation: none; opacity: 0.35; }
+  }
+
+  /* ============================================================
+     Mood-Background atmet mit den Daten (#38).
+     @property erlaubt smoothes Animieren der RGB-Custom-Properties,
+     was sonst nicht ginge (background-Gradients sind nicht
+     transitionable). Browser ohne @property-Support springen
+     instant zur neuen Farbe — die App funktioniert in beiden Fällen.
+     ============================================================ */
+  @property --mood-r {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 199;
+  }
+  @property --mood-g {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 155;
+  }
+  @property --mood-b {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 208;
+  }
+  body {
+    transition:
+      --mood-r 1.6s ease,
+      --mood-g 1.6s ease,
+      --mood-b 1.6s ease,
+      background-color 0.8s ease;
+  }
