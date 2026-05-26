@@ -114,18 +114,6 @@
     </section>
 
     <section class="card">
-      <div class="section-title">Fluidität &amp; Verteilung
-        <details class="info"><summary aria-label="Infos zum Fluiditäts-Index">ⓘ</summary>
-          <p>Gender-Empfinden schwankt bei vielen Menschen — täglich, situativ, je nach Energie. Dein <strong>Fluiditäts-Index</strong> misst, wie stark deine Werte streuen: die <strong>Standardabweichung σ</strong> ist vereinfacht gesagt der durchschnittliche Abstand deiner Check-ins von ihrem Mittelwert. Wir rechnen das auf eine Skala 0–100 um. Hoher Wert = beweglich, niedriger Wert = stabil. Keins ist „besser" — es ist einfach dein Muster.</p>
-        </details>
-      </div>
-      <div class="fluidity-row" id="fluidityRow"></div>
-      <div class="section-title" style="margin-top:18px">Wie oft welches Spektrum</div>
-      <div class="spectrum-hist" id="spectrumHist"></div>
-      <div class="spectrum-hist-labels" id="spectrumHistLabels"></div>
-    </section>
-
-    <section class="card">
       <div class="section-title">Verteilung &amp; Durchschnittsfarben
         <details class="info"><summary aria-label="Infos zur Verteilung">ⓘ</summary>
           <p>Gender in Schubladen (weiblich / männlich) zu zwängen versteckt, was zwischen diesen Schubladen passiert. Deshalb misst diese App auf einem fließenden Spektrum von 0 bis 100. Die drei Kategorien <em>weiblich · fluid · männlich</em> hier sind nur eine grobe Lesehilfe — dein eigentlicher Wert bleibt nuanciert und kontinuierlich.</p>
@@ -142,6 +130,18 @@
         <span><span class="dot" style="background:var(--blue)"></span><span id="lbML">männlich · 0%</span></span>
       </div>
       <div class="swatch-row" id="swatches"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">Fluidität &amp; Verteilung
+        <details class="info"><summary aria-label="Infos zum Fluiditäts-Index">ⓘ</summary>
+          <p>Gender-Empfinden schwankt bei vielen Menschen — täglich, situativ, je nach Energie. Dein <strong>Fluiditäts-Index</strong> misst, wie stark deine Werte streuen: die <strong>Standardabweichung σ</strong> ist vereinfacht gesagt der durchschnittliche Abstand deiner Check-ins von ihrem Mittelwert. Wir rechnen das auf eine Skala 0–100 um. Hoher Wert = beweglich, niedriger Wert = stabil. Keins ist „besser" — es ist einfach dein Muster.</p>
+        </details>
+      </div>
+      <div class="fluidity-row" id="fluidityRow"></div>
+      <div class="section-title" style="margin-top:18px">Wie oft welches Spektrum</div>
+      <div class="spectrum-hist" id="spectrumHist"></div>
+      <div class="spectrum-hist-labels" id="spectrumHistLabels"></div>
     </section>
 
     <section class="card">
@@ -184,6 +184,18 @@
         </details>
       </div>
       <div class="combo-matrix" id="comboMatrix"></div>
+      <div class="section-title" style="margin-top:18px">Ort × Begleitung-Matrix
+        <details class="info"><summary aria-label="Infos zur Ort×Begleitung-Matrix">ⓘ</summary>
+          <p>Wer um dich herum ist und wo du bist, beeinflusst dein Empfinden oft gleichzeitig. Diese Matrix zeigt den durchschnittlichen Gender-Wert (Farbe) je Ort × Begleitungs-Kombi und wie oft sie auftrat (Zahl). Bei n&lt;3 ist die Zelle abgedämpft.</p>
+        </details>
+      </div>
+      <div class="combo-matrix" id="ortBegleitungMatrix"></div>
+      <div class="section-title" style="margin-top:18px">Befinden × Begleitung-Matrix
+        <details class="info"><summary aria-label="Infos zur Befinden×Begleitung-Matrix">ⓘ</summary>
+          <p>Mit welchen Menschen welche Stimmungen häufiger zusammentreffen — und wie dein Gender-Wert darin im Schnitt liegt. Farbe = Ø-Wert, Zahl = Anzahl Check-ins. n&lt;3 dezent abgedämpft.</p>
+        </details>
+      </div>
+      <div class="combo-matrix" id="befindenBegleitungMatrix"></div>
       <div class="section-title" style="margin-top:18px">Bucket-Übergänge von Tag zu Tag
         <details class="info"><summary aria-label="Infos zur Übergangsmatrix">ⓘ</summary>
           <p>Wenn du an einem Tag <strong>im Bucket X</strong> bist (♀ / ⚧ / ♂): wie häufig bleibst du am nächsten Tag dort, wie häufig kippt es woanders hin? Die Diagonale (X→X) zeigt deine <strong>Beharrungstendenz</strong>, die Off-Diagonalen deine <strong>Wechselrichtungen</strong>. Erst aussagekräftig, wenn du viele zusammenhängende Tage erfasst hast — Lücken zählen nicht mit.</p>
@@ -193,13 +205,13 @@
     </section>
 
     <section class="card">
-      <div class="section-title">Was wir bemerkt haben</div>
-      <ul class="insights" id="insights"></ul>
+      <div class="section-title">Streaks &amp; Trend</div>
+      <div class="stats-grid" id="streakStats"></div>
     </section>
 
     <section class="card">
-      <div class="section-title">Streaks &amp; Trend</div>
-      <div class="stats-grid" id="streakStats"></div>
+      <div class="section-title">Was wir bemerkt haben</div>
+      <ul class="insights" id="insights"></ul>
     </section>
 
     <section class="card review-cta" id="reviewCta">

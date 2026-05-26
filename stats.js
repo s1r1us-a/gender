@@ -58,12 +58,20 @@ export function computeStats(data) {
   const byOrt = {};
   const byBefinden = {};
   const byBegleitung = {};
-  const byCombo = {};
+  const byCombo = {};               // Ort × Befinden
+  const byOrtBegleitung = {};       // Ort × Begleitung
+  const byBefindenBegleitung = {};  // Befinden × Begleitung
   const addTo = (bucketMap, name, v) => {
     if (!name) return;
     if (!bucketMap[name]) bucketMap[name] = { sum: 0, count: 0 };
     bucketMap[name].sum += v;
     bucketMap[name].count += 1;
+  };
+  const addToCombo = (map, a, b, v) => {
+    const key = a + "␟" + b;
+    if (!map[key]) map[key] = { sum: 0, count: 0 };
+    map[key].sum += v;
+    map[key].count += 1;
   };
   for (const dk of dayKeys) {
     const vals = [];
@@ -91,6 +99,14 @@ export function computeStats(data) {
           byCombo[key].count += 1;
         }
       }
+      if (ort && begleitungTags.length) {
+        for (const g of begleitungTags) addToCombo(byOrtBegleitung, ort, g, v);
+      }
+      if (befindenTags.length && begleitungTags.length) {
+        for (const b of befindenTags) {
+          for (const g of begleitungTags) addToCombo(byBefindenBegleitung, b, g, v);
+        }
+      }
     }
     if (vals.length) {
       dayAvgs[dk] = avg(vals);
@@ -100,7 +116,8 @@ export function computeStats(data) {
   }
   return {
     dayAvgs, dayCounts, daySwings,
-    allEntries, byOrt, byBefinden, byBegleitung, byCombo,
+    allEntries, byOrt, byBefinden, byBegleitung,
+    byCombo, byOrtBegleitung, byBefindenBegleitung,
     dayKeys: Object.keys(dayAvgs).sort()
   };
 }
@@ -293,7 +310,7 @@ export function detectFirstSeenCombo(stats, windowDays = 14, now = new Date()) {
   const earliest = {};
   const counts = {};
   for (const e of stats.allEntries) {
-    const ort = (e.ort || "").trim();
+    const ort = (e.ort ?? e.situation ?? "").trim();
     if (!ort) continue;
     if (!Number.isFinite(e.ts)) continue;
     const befTags = Array.isArray(e.befinden)

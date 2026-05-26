@@ -142,6 +142,52 @@ test("computeStats: Begleitung als String und Array (Rückwärtskompat)", () => 
   assert.equal(s.byBegleitung["Sam"].sum, 60);
 });
 
+test("computeStats: Ort × Begleitung und Befinden × Begleitung werden gekreuzt", () => {
+  const data = {
+    "2026-05-26": {
+      e1: {
+        value: 40, ts: 1000,
+        ort: "Büro",
+        befinden: ["müde", "fröhlich"],
+        begleitung: ["Anna", "Ben"]
+      },
+      e2: {
+        value: 60, ts: 2000,
+        ort: "Büro",
+        befinden: "müde",
+        begleitung: "Anna"
+      }
+    }
+  };
+  const s = computeStats(data);
+  // Ort × Begleitung: e1 erzeugt Büro×Anna und Büro×Ben, e2 nur Büro×Anna
+  assert.equal(s.byOrtBegleitung["Büro␟Anna"].count, 2);
+  assert.equal(s.byOrtBegleitung["Büro␟Anna"].sum, 100);
+  assert.equal(s.byOrtBegleitung["Büro␟Ben"].count, 1);
+  assert.equal(s.byOrtBegleitung["Büro␟Ben"].sum, 40);
+  // Befinden × Begleitung: e1 erzeugt 4 Kombis, e2 fügt müde×Anna ein zweites Mal hinzu
+  assert.equal(s.byBefindenBegleitung["müde␟Anna"].count, 2);
+  assert.equal(s.byBefindenBegleitung["müde␟Anna"].sum, 100);
+  assert.equal(s.byBefindenBegleitung["müde␟Ben"].count, 1);
+  assert.equal(s.byBefindenBegleitung["müde␟Ben"].sum, 40);
+  assert.equal(s.byBefindenBegleitung["fröhlich␟Anna"].count, 1);
+  assert.equal(s.byBefindenBegleitung["fröhlich␟Anna"].sum, 40);
+  assert.equal(s.byBefindenBegleitung["fröhlich␟Ben"].count, 1);
+  assert.equal(s.byBefindenBegleitung["fröhlich␟Ben"].sum, 40);
+});
+
+test("computeStats: Begleitung ohne Ort oder Befinden erzeugt keine Combo", () => {
+  const data = {
+    "2026-05-26": {
+      e1: { value: 50, ts: 1000, begleitung: "Anna" }
+    }
+  };
+  const s = computeStats(data);
+  assert.deepEqual(s.byOrtBegleitung, {});
+  assert.deepEqual(s.byBefindenBegleitung, {});
+  assert.equal(s.byBegleitung["Anna"].count, 1);
+});
+
 test("computeStats: ohne Tags bleibt byBegleitung leer", () => {
   const data = {
     "2026-05-26": {

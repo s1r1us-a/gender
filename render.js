@@ -587,65 +587,92 @@ function renderStreaks(stats) {
   ].join("");
 }
 
-/* Korrelations-Matrix Ort × Befinden. */
-function renderComboMatrix(stats) {
-  const container = document.getElementById("comboMatrix");
+/* Generische Korrelations-Matrix. `byCombo` ist eine Map "row␟col" → {sum,count}.
+   `byRow`/`byCol` sind die zugehörigen 1D-Aggregate, aus denen die Achsen sortiert
+   werden. Sie werden auch genutzt, um die zwei Vorkommen-Schwelle zu prüfen. */
+function renderMatrix(containerId, byCombo, byRow, byCol, opts) {
+  const container = document.getElementById(containerId);
   if (!container) return;
-  const combos = Object.values(stats.byCombo);
+  const { colLabel, rowLabel, emptyBoth, emptyOne } = opts;
+  const combos = Object.values(byCombo);
   if (combos.length === 0) {
-    container.innerHTML = `<div class="sit-empty">Erfasse Ort UND Befinden im selben Check-in, um Muster zwischen beiden sichtbar zu machen.</div>`;
+    container.innerHTML = `<div class="sit-empty">${emptyBoth}</div>`;
     return;
   }
-  const orte = Object.entries(stats.byOrt)
+  const cols = Object.entries(byCol)
     .filter(([, a]) => a.count >= 2)
     .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0], "de"))
     .map(([name]) => name);
-  const befinden = Object.entries(stats.byBefinden)
+  const rows = Object.entries(byRow)
     .filter(([, a]) => a.count >= 2)
     .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0], "de"))
     .map(([name]) => name);
 
-  if (!orte.length || !befinden.length) {
-    container.innerHTML = `<div class="sit-empty">Noch zu wenig Daten. Tagge regelmäßig sowohl Ort als auch Befinden — ab ca. 2 Vorkommen pro Tag auftauchen hier Muster.</div>`;
+  if (!cols.length || !rows.length) {
+    container.innerHTML = `<div class="sit-empty">${emptyOne}</div>`;
     return;
   }
-  const orteShown = orte.slice(0, 12);
-  const befShown = befinden.slice(0, 12);
-  const lookup = (o, b) => stats.byCombo[o + "␟" + b];
+  const colsShown = cols.slice(0, 12);
+  const rowsShown = rows.slice(0, 12);
+  const lookup = (col, row) => byCombo[col + "␟" + row];
 
-  let html = `<div class="combo-grid" style="grid-template-columns: minmax(80px, 1.4fr) repeat(${orteShown.length}, minmax(48px, 1fr));">`;
+  let html = `<div class="combo-grid" style="grid-template-columns: minmax(80px, 1.4fr) repeat(${colsShown.length}, minmax(48px, 1fr));">`;
   html += `<div class="combo-corner"></div>`;
-  for (const o of orteShown) {
-    html += `<div class="combo-col-head" title="${escapeHtml(o)}">${escapeHtml(o)}</div>`;
+  for (const col of colsShown) {
+    html += `<div class="combo-col-head" title="${escapeHtml(col)}">${escapeHtml(col)}</div>`;
   }
-  for (const b of befShown) {
-    html += `<div class="combo-row-head" title="${escapeHtml(b)}">${escapeHtml(b)}</div>`;
-    for (const o of orteShown) {
-      const c = lookup(o, b);
+  for (const row of rowsShown) {
+    html += `<div class="combo-row-head" title="${escapeHtml(row)}">${escapeHtml(row)}</div>`;
+    for (const col of colsShown) {
+      const c = lookup(col, row);
       if (!c) {
-        html += `<div class="combo-cell combo-empty" title="${escapeHtml(o)} × ${escapeHtml(b)}: keine Daten"></div>`;
+        html += `<div class="combo-cell combo-empty" title="${escapeHtml(col)} × ${escapeHtml(row)}: keine Daten"></div>`;
         continue;
       }
       const avgV = c.sum / c.count;
-      const col = valueToColor(avgV);
+      const hue = valueToColor(avgV);
       const opacity = c.count >= 3 ? 1 : 0.45;
-      const txt = contrastText(col);
+      const txt = contrastText(hue);
       html += `
         <div class="combo-cell"
-             style="background:${col.hex}; opacity:${opacity}; color:${txt}"
-             title="${escapeHtml(o)} × ${escapeHtml(b)}: Ø ${avgV.toFixed(1)} (${valueToLabel(avgV)}) · n=${c.count}">
+             style="background:${hue.hex}; opacity:${opacity}; color:${txt}"
+             title="${escapeHtml(col)} × ${escapeHtml(row)}: Ø ${avgV.toFixed(1)} (${valueToLabel(avgV)}) · n=${c.count}">
           <span class="combo-v">${avgV.toFixed(0)}</span>
           <span class="combo-n">${c.count}</span>
         </div>`;
     }
   }
   html += `</div>`;
-  const hiddenOrte = orte.length - orteShown.length;
-  const hiddenBef = befinden.length - befShown.length;
-  if (hiddenOrte > 0 || hiddenBef > 0) {
-    html += `<div class="combo-note">Zeigt die häufigsten 12×12. Weitere Tags ausgeblendet: ${hiddenOrte} Ort${hiddenOrte === 1 ? "" : "e"}, ${hiddenBef} Befinden.</div>`;
+  const hiddenCols = cols.length - colsShown.length;
+  const hiddenRows = rows.length - rowsShown.length;
+  if (hiddenCols > 0 || hiddenRows > 0) {
+    html += `<div class="combo-note">Zeigt die häufigsten 12×12. Weitere Tags ausgeblendet: ${hiddenCols} ${colLabel}, ${hiddenRows} ${rowLabel}.</div>`;
   }
   container.innerHTML = html;
+}
+
+function renderComboMatrix(stats) {
+  renderMatrix("comboMatrix", stats.byCombo, stats.byBefinden, stats.byOrt, {
+    colLabel: "Orte", rowLabel: "Befinden",
+    emptyBoth: "Erfasse Ort UND Befinden im selben Check-in, um Muster zwischen beiden sichtbar zu machen.",
+    emptyOne: "Mindestens 2 Check-ins mit gleichzeitig Ort UND Befinden nötig — tagge beides regelmäßig, dann tauchen hier Muster auf."
+  });
+}
+
+function renderOrtBegleitungMatrix(stats) {
+  renderMatrix("ortBegleitungMatrix", stats.byOrtBegleitung, stats.byBegleitung, stats.byOrt, {
+    colLabel: "Orte", rowLabel: "Begleitungen",
+    emptyBoth: "Erfasse Ort UND Begleitung im selben Check-in, um Muster zwischen beiden sichtbar zu machen.",
+    emptyOne: "Mindestens 2 Check-ins mit gleichzeitig Ort UND Begleitung nötig — tagge beides regelmäßig, dann tauchen hier Muster auf."
+  });
+}
+
+function renderBefindenBegleitungMatrix(stats) {
+  renderMatrix("befindenBegleitungMatrix", stats.byBefindenBegleitung, stats.byBegleitung, stats.byBefinden, {
+    colLabel: "Befinden", rowLabel: "Begleitungen",
+    emptyBoth: "Erfasse Befinden UND Begleitung im selben Check-in, um Muster zwischen beiden sichtbar zu machen.",
+    emptyOne: "Mindestens 2 Check-ins mit gleichzeitig Befinden UND Begleitung nötig — tagge beides regelmäßig, dann tauchen hier Muster auf."
+  });
 }
 
 function renderTagStats(containerId, byTag, emptyText) {
@@ -1041,9 +1068,10 @@ function applyMoodBackground(stats) {
 
 export function renderAll() {
   renderGrid();
-  /* Stats werden zweifach berechnet: einmal mit allen Daten (für Karten,
-     die ihren eigenen Sinn haben — Heatmap, Hero, Sparkline, Insights),
-     einmal mit dem aktiven Zeitfenster (für alle anderen Karten). */
+  /* Stats werden zweifach berechnet: einmal mit allen Daten (für Karten
+     mit eigener Zeit-Logik — Heatmap, Hero, Sparkline), einmal mit dem
+     aktiven Zeitfenster (für alle anderen Karten inkl. Insights, damit
+     die Aussagen zum gewählten Range passen). */
   const fullStats = computeStats(state.data);
   const stats = state.statsRange === "all"
     ? fullStats
@@ -1052,22 +1080,27 @@ export function renderAll() {
   applyMoodBackground(fullStats);
   renderRangeBar(stats);
   renderHeroToday(fullStats);
+  // Cluster A: Verteilung
   renderOverviewBars(stats);
   renderOverviewMeta(stats);
+  renderBuckets(stats);
   renderFluidityIndex(stats);
   renderSpectrumHistogram(stats);
-  renderBuckets(stats);
+  // Cluster B: Zeit & Kontext
   renderSparkline(fullStats);
   renderHeatmap(fullStats);
-  renderHistogram(stats);
   renderWeekdays(stats);
+  renderHistogram(stats);
   renderTagStats("ortStats", stats.byOrt, "Noch keine Orte erfasst — füge im Check-in einen hinzu.");
   renderTagStats("befindenStats", stats.byBefinden, "Noch kein Befinden erfasst — füge im Check-in eins hinzu.");
   renderTagStats("begleitungStats", stats.byBegleitung, "Noch keine Begleitung erfasst — füge im Check-in jemanden hinzu.");
   renderComboMatrix(stats);
+  renderOrtBegleitungMatrix(stats);
+  renderBefindenBegleitungMatrix(stats);
   renderTransitions(stats);
-  renderInsights(fullStats);
+  // Cluster C: Rohdaten zuerst, dann Insights als Schlussfolgerung
   renderStreaks(stats);
+  renderInsights(stats);
   syncSheetAfterRender();
 }
 
