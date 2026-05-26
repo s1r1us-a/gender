@@ -1091,7 +1091,293 @@ function wireRangeBar() {
   });
 }
 
+/* ---------- Rückblick (#9) ---------- */
+const MONTH_NAMES_SHORT = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+
+function fmtDateShort(d) {
+  return `${d.getDate()}. ${MONTH_NAMES_SHORT[d.getMonth()]}`;
+}
+function fmtDayKeyShort(dk) {
+  const d = parseDayKey(dk);
+  return `${d.getDate()}. ${MONTH_NAMES_SHORT[d.getMonth()]}`;
+}
+
+function donutSvg(pctF, pctN, pctM) {
+  const r = 70, C = 2 * Math.PI * r;
+  const lenF = (C * pctF) / 100;
+  const lenN = (C * pctN) / 100;
+  const lenM = (C * pctM) / 100;
+  const segs = [
+    { len: lenF, off: 0, color: "var(--pink)" },
+    { len: lenN, off: -lenF, color: "var(--neutral)" },
+    { len: lenM, off: -(lenF + lenN), color: "var(--blue)" }
+  ];
+  const circles = segs
+    .filter(s => s.len > 0.01)
+    .map(s => `<circle cx="90" cy="90" r="${r}" fill="none" stroke="${s.color}" stroke-width="22"
+                  stroke-dasharray="${s.len.toFixed(2)} ${(C - s.len).toFixed(2)}"
+                  stroke-dashoffset="${s.off.toFixed(2)}"
+                  transform="rotate(-90 90 90)"/>`)
+    .join("");
+  return `<svg class="donut" viewBox="0 0 180 180" aria-hidden="true">
+    <circle cx="90" cy="90" r="${r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="22"/>
+    ${circles}
+  </svg>`;
+}
+
+function buildReviewCards(period, now = new Date()) {
+  const range = period === "week" ? "7d" : "30d";
+  const days = period === "week" ? 7 : 30;
+  const data = filterDataByRange(state.data, range, now);
+  const stats = computeStats(data);
+  const cards = [];
+
+  /* Cover */
+  const startD = new Date(now); startD.setHours(0, 0, 0, 0); startD.setDate(startD.getDate() - (days - 1));
+  const endD = new Date(now); endD.setHours(0, 0, 0, 0);
+  const totalEntries = stats.allEntries.length;
+  const trackedDays = stats.dayKeys.length;
+  const periodLabel = period === "week" ? "Diese Woche" : "Dieser Monat";
+  const allAvg = avg(Object.values(stats.dayAvgs));
+  const heroCol = allAvg != null ? valueToColor(allAvg) : { hex: "#c79bd0" };
+  const heroSym = allAvg != null ? valueToHeroSymbol(allAvg) : "⚧";
+  cards.push(`
+    <div class="review-card">
+      <div>
+        <div class="eyebrow">Rückblick</div>
+        <div class="headline">${periodLabel}</div>
+        <div class="sub">${fmtDateShort(startD)} – ${fmtDateShort(endD)} ${endD.getFullYear()}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:84px; line-height:1; color:${heroCol.hex}; text-shadow: 0 0 28px ${heroCol.hex}">${heroSym}</div>
+      </div>
+      <div>
+        <div class="number">${totalEntries}</div>
+        <div class="sub">Check-ins an ${trackedDays} Tag${trackedDays === 1 ? "" : "en"}</div>
+      </div>
+    </div>
+  `);
+
+  if (totalEntries === 0) {
+    cards.push(`
+      <div class="review-card">
+        <div class="review-empty">Noch keine Check-ins in diesem Zeitraum. Zeit, einen einzutragen!</div>
+      </div>
+    `);
+    return cards;
+  }
+
+  /* Verteilung-Donut */
+  const buckets = computeBuckets(stats);
+  let headline = "gemischt";
+  const top = Math.max(buckets.pctF, buckets.pctN, buckets.pctM);
+  if (top === buckets.pctF && buckets.pctF >= 50) headline = "überwiegend weiblich";
+  else if (top === buckets.pctM && buckets.pctM >= 50) headline = "überwiegend männlich";
+  else if (top === buckets.pctN && buckets.pctN >= 50) headline = "überwiegend fluid";
+  else if (buckets.pctF + buckets.pctM > buckets.pctN) headline = "bipolar verteilt";
+  cards.push(`
+    <div class="review-card">
+      <div>
+        <div class="eyebrow">Verteilung</div>
+        <div class="headline">${headline}</div>
+      </div>
+      ${donutSvg(buckets.pctF, buckets.pctN, buckets.pctM)}
+      <div class="legend">
+        <span><span class="dot" style="background:var(--pink)"></span>weiblich · ${Math.round(buckets.pctF)}%</span>
+        <span><span class="dot" style="background:var(--neutral)"></span>fluid · ${Math.round(buckets.pctN)}%</span>
+        <span><span class="dot" style="background:var(--blue)"></span>männlich · ${Math.round(buckets.pctM)}%</span>
+      </div>
+    </div>
+  `);
+
+  /* Höchster / niedrigster Tag */
+  let minDk = null, maxDk = null;
+  for (const dk in stats.dayAvgs) {
+    if (minDk === null || stats.dayAvgs[dk] < stats.dayAvgs[minDk]) minDk = dk;
+    if (maxDk === null || stats.dayAvgs[dk] > stats.dayAvgs[maxDk]) maxDk = dk;
+  }
+  if (minDk && maxDk && minDk !== maxDk) {
+    const cMin = valueToColor(stats.dayAvgs[minDk]);
+    const cMax = valueToColor(stats.dayAvgs[maxDk]);
+    cards.push(`
+      <div class="review-card">
+        <div>
+          <div class="eyebrow">Tag-Extreme</div>
+          <div class="headline">Deine Pole</div>
+        </div>
+        <div class="extreme">
+          <div class="swatch" style="background:${cMin.hex}"></div>
+          <div class="col">
+            <div class="lbl">Tiefster Tag</div>
+            <div class="val" style="color:${cMin.hex}">${stats.dayAvgs[minDk].toFixed(0)}</div>
+            <div class="day">${escapeHtml(fmtDayKeyShort(minDk))} · ${escapeHtml(valueToLabel(stats.dayAvgs[minDk]))}</div>
+          </div>
+        </div>
+        <div class="extreme">
+          <div class="swatch" style="background:${cMax.hex}"></div>
+          <div class="col">
+            <div class="lbl">Höchster Tag</div>
+            <div class="val" style="color:${cMax.hex}">${stats.dayAvgs[maxDk].toFixed(0)}</div>
+            <div class="day">${escapeHtml(fmtDayKeyShort(maxDk))} · ${escapeHtml(valueToLabel(stats.dayAvgs[maxDk]))}</div>
+          </div>
+        </div>
+      </div>
+    `);
+  }
+
+  /* Häufigster Ort + Befinden */
+  const topTag = (byTag) => {
+    let best = null;
+    for (const name in byTag) {
+      const a = byTag[name];
+      if (!best || a.count > best.count) best = { name, count: a.count, avg: a.sum / a.count };
+    }
+    return best;
+  };
+  const topOrt = topTag(stats.byOrt);
+  const topBef = topTag(stats.byBefinden);
+  if (topOrt || topBef) {
+    cards.push(`
+      <div class="review-card">
+        <div>
+          <div class="eyebrow">Häufig dabei</div>
+          <div class="headline">Wo &amp; wie</div>
+        </div>
+        ${topOrt ? `
+          <div class="extreme">
+            <div class="swatch" style="background:${valueToColor(topOrt.avg).hex}"></div>
+            <div class="col">
+              <div class="lbl">Top-Ort</div>
+              <div class="val">${escapeHtml(topOrt.name)}</div>
+              <div class="day">${topOrt.count}× · ⌀ ${topOrt.avg.toFixed(0)}</div>
+            </div>
+          </div>` : ""}
+        ${topBef ? `
+          <div class="extreme">
+            <div class="swatch" style="background:${valueToColor(topBef.avg).hex}"></div>
+            <div class="col">
+              <div class="lbl">Top-Befinden</div>
+              <div class="val">${escapeHtml(topBef.name)}</div>
+              <div class="day">${topBef.count}× · ⌀ ${topBef.avg.toFixed(0)}</div>
+            </div>
+          </div>` : ""}
+      </div>
+    `);
+  }
+
+  /* Vergleich zur Vorperiode */
+  const priorEnd = new Date(startD); priorEnd.setDate(priorEnd.getDate() - 1);
+  const priorStart = new Date(priorEnd); priorStart.setDate(priorStart.getDate() - (days - 1));
+  const priorData = {};
+  for (const dk in state.data) {
+    const d = parseDayKey(dk);
+    if (d >= priorStart && d <= priorEnd) priorData[dk] = state.data[dk];
+  }
+  const priorStats = computeStats(priorData);
+  const priorAvgs = Object.values(priorStats.dayAvgs);
+  if (allAvg != null && priorAvgs.length >= 1) {
+    const priorAvg = avg(priorAvgs);
+    const diff = allAvg - priorAvg;
+    const arrow = Math.abs(diff) < 2 ? "→" : (diff > 0 ? "↗" : "↘");
+    const dir = Math.abs(diff) < 2 ? "praktisch unverändert" : (diff > 0 ? "männlicher" : "weiblicher");
+    const dCol = valueToColor(allAvg).hex;
+    cards.push(`
+      <div class="review-card">
+        <div>
+          <div class="eyebrow">Vergleich</div>
+          <div class="headline">vs. ${period === "week" ? "Vorwoche" : "Vormonat"}</div>
+        </div>
+        <div style="text-align:center">
+          <div class="number" style="color:${dCol}">${arrow} ${Math.abs(diff).toFixed(1)}</div>
+          <div class="sub">Punkte ${dir}</div>
+        </div>
+        <div class="sub" style="text-align:center">
+          ${period === "week" ? "Diese" : "Dieser"} ${period === "week" ? "Woche" : "Monat"}: ⌀ ${allAvg.toFixed(1)}<br>
+          Vor${period === "week" ? "woche" : "monat"}: ⌀ ${priorAvg.toFixed(1)} (${priorAvgs.length} Tag${priorAvgs.length === 1 ? "" : "e"})
+        </div>
+      </div>
+    `);
+  }
+
+  /* Outro */
+  cards.push(`
+    <div class="review-card">
+      <div>
+        <div class="eyebrow">Weiter so</div>
+        <div class="headline">Danke für deine Aufmerksamkeit ✨</div>
+        <div class="sub">Jedes Check-in macht das Bild deines Selbst klarer.</div>
+      </div>
+      <div style="text-align:center">
+        <div class="number">${totalEntries}</div>
+        <div class="sub">Check-ins in dieser ${period === "week" ? "Woche" : "Monatsphase"}</div>
+      </div>
+    </div>
+  `);
+
+  return cards;
+}
+
+let currentReviewPeriod = "week";
+
+function renderReview(period) {
+  currentReviewPeriod = period;
+  const strip = document.getElementById("reviewStrip");
+  const dots = document.getElementById("reviewDots");
+  if (!strip || !dots) return;
+  const cards = buildReviewCards(period);
+  strip.innerHTML = cards.join("");
+  dots.innerHTML = cards.map((_, i) => `<span class="d${i === 0 ? " active" : ""}"></span>`).join("");
+  strip.scrollLeft = 0;
+  // Toggle UI
+  for (const btn of document.querySelectorAll("#reviewToggle button")) {
+    btn.setAttribute("aria-checked", btn.dataset.period === period ? "true" : "false");
+  }
+  // Active-Dot via Scroll-Position
+  strip.onscroll = () => {
+    const cardW = strip.firstElementChild ? strip.firstElementChild.offsetWidth + 16 : 1;
+    const idx = Math.round(strip.scrollLeft / cardW);
+    const dotEls = dots.querySelectorAll(".d");
+    for (let i = 0; i < dotEls.length; i++) {
+      dotEls[i].classList.toggle("active", i === idx);
+    }
+  };
+}
+
+function openReview(period = "week") {
+  const overlay = document.getElementById("reviewOverlay");
+  if (!overlay) return;
+  overlay.hidden = false;
+  renderReview(period);
+  document.body.style.overflow = "hidden";
+}
+
+function closeReview() {
+  const overlay = document.getElementById("reviewOverlay");
+  if (!overlay) return;
+  overlay.hidden = true;
+  document.body.style.overflow = "";
+}
+
+function wireReview() {
+  const openBtn = document.getElementById("openReviewBtn");
+  const closeBtn = document.getElementById("reviewClose");
+  const toggle = document.getElementById("reviewToggle");
+  const overlay = document.getElementById("reviewOverlay");
+  if (!openBtn || !closeBtn || !toggle || !overlay) return;
+  openBtn.addEventListener("click", () => openReview(currentReviewPeriod));
+  closeBtn.addEventListener("click", closeReview);
+  toggle.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-period]");
+    if (!btn) return;
+    renderReview(btn.dataset.period);
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (!overlay.hidden && ev.key === "Escape") { ev.preventDefault(); closeReview(); }
+  });
+}
+
 export function initRender() {
   subscribe(renderAll);
   wireRangeBar();
+  wireReview();
 }

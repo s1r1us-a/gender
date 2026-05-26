@@ -172,7 +172,7 @@ function wireTagSelect(selectEl, inputEl) {
   });
 }
 
-export function openSheet(dk) {
+export function openSheet(dk, preselectEntryId = null) {
   if (!canWrite()) return;
   state.selectedDayKey = dk;
   state.editingEntryId = null;
@@ -195,6 +195,24 @@ export function openSheet(dk) {
   renderEntryList(dk);
   backdrop.classList.add("open");
   sheet.classList.add("open");
+  /* Wenn ein Eintrag vorausgewählt werden soll (z. B. aus der Suche),
+     dessen Daten in das Formular übernehmen. */
+  if (preselectEntryId && state.data[dk] && state.data[dk][preselectEntryId]) {
+    const e = state.data[dk][preselectEntryId];
+    state.editingEntryId = preselectEntryId;
+    const v = Number(e.value);
+    setSliderToValue(v);
+    updateFeel();
+    if (Number.isFinite(e.ts)) {
+      const t = new Date(e.ts);
+      timeInput.value = `${pad(t.getHours())}:${pad(t.getMinutes())}`;
+    }
+    populateOrtOptions((e.ort ?? e.situation ?? "").trim());
+    populateBefindenOptions((e.befinden || "").trim());
+    noteInput.value = (e.note || "").trim();
+    updateNoteCount();
+    renderEntryList(dk);
+  }
   /* Slider ist die zentrale Aktion → bekommt sofort Fokus für Tastatur-Bedienung. */
   requestAnimationFrame(() => { try { slider.focus(); } catch (_) {} });
 }
@@ -487,8 +505,127 @@ export function initUi() {
      und sorgt für deterministisches Schließen auf Desktop UND Touch. */
   initInfoCards();
 
+  /* Volltext-Suche (#40) */
+  initSearch();
+
   // First paint des Slider-Feel-Anzeige (vor erstem Daten-Render).
   updateFeel();
+}
+
+/* ---------- Volltext-Suche (#40) ---------- */
+function initSearch() {
+  const btn = document.getElementById("searchBtn");
+  const panel = document.getElementById("searchPanel");
+  const input = document.getElementById("searchInput");
+  const closeBtn = document.getElementById("searchClose");
+  const results = document.getElementById("searchResults");
+  if (!btn || !panel || !input || !closeBtn || !results) return;
+
+  const open = () => {
+    panel.hidden = false;
+    requestAnimationFrame(() => input.focus());
+    renderSearchResults(input.value, results);
+  };
+  const close = () => {
+    panel.hidden = true;
+    input.value = "";
+    results.replaceChildren();
+  };
+
+  btn.addEventListener("click", () => {
+    if (panel.hidden) open(); else close();
+  });
+  closeBtn.addEventListener("click", close);
+
+  input.addEventListener("input", () => renderSearchResults(input.value, results));
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { ev.preventDefault(); close(); }
+  });
+
+  results.addEventListener("click", (ev) => {
+    const row = ev.target.closest("[data-dk]");
+    if (!row) return;
+    const dk = row.dataset.dk;
+    const eid = row.dataset.eid;
+    close();
+    openSheet(dk, eid);
+  });
+}
+
+const SEARCH_MAX_RESULTS = 50;
+function renderSearchResults(query, container) {
+  const q = (query || "").trim().toLowerCase();
+  container.replaceChildren();
+  if (!q) return;
+  const matches = [];
+  for (const dk in state.data) {
+    for (const id in state.data[dk]) {
+      const e = state.data[dk][id];
+      const ort = (e.ort ?? e.situation ?? "").trim();
+      const bef = (e.befinden || "").trim();
+      const note = (e.note || "").trim();
+      const haystack = `${note}\n${ort}\n${bef}`.toLowerCase();
+      if (!haystack.includes(q)) continue;
+      matches.push({ dk, id, e, ort, bef, note });
+    }
+  }
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "search-empty";
+    empty.textContent = `Keine Treffer für „${query}".`;
+    container.appendChild(empty);
+    return;
+  }
+  // Chronologisch absteigend (neueste zuerst)
+  matches.sort((a, b) => (b.e.ts || 0) - (a.e.ts || 0));
+  const shown = matches.slice(0, SEARCH_MAX_RESULTS);
+  for (const m of shown) {
+    const v = Number(m.e.value);
+    const c = valueToColor(v);
+    const d = parseDayKey(m.dk);
+    const dateLabel = d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    const time = m.e.ts ? fmtTime(m.e.ts) : "—";
+    const tagParts = [m.ort, m.bef].filter(Boolean).map(escapeHtml).join(" · ");
+    const snippet = m.note ? highlightSnippet(m.note, q) : "";
+    const row = document.createElement("div");
+    row.className = "search-row";
+    row.dataset.dk = m.dk;
+    row.dataset.eid = m.id;
+    row.setAttribute("role", "option");
+    row.tabIndex = 0;
+    row.innerHTML = `
+      <div class="search-row-head">
+        <span class="dot" style="background:${c.hex}"></span>
+        <span>${escapeHtml(dateLabel)} · ${time}</span>
+        <span class="val">Wert ${v}</span>
+      </div>
+      ${tagParts ? `<div class="search-row-tags">${tagParts}</div>` : ""}
+      ${snippet ? `<div class="search-row-snip">${snippet}</div>` : ""}
+    `;
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); row.click(); }
+    });
+    container.appendChild(row);
+  }
+  if (matches.length > SEARCH_MAX_RESULTS) {
+    const more = document.createElement("div");
+    more.className = "search-empty";
+    more.textContent = `… ${matches.length - SEARCH_MAX_RESULTS} weitere Treffer. Suche präzisieren, um sie zu sehen.`;
+    container.appendChild(more);
+  }
+}
+
+function highlightSnippet(text, q) {
+  const idx = text.toLowerCase().indexOf(q);
+  if (idx < 0) return escapeHtml(text);
+  const start = Math.max(0, idx - 30);
+  const end = Math.min(text.length, idx + q.length + 60);
+  const prefix = start > 0 ? "… " : "";
+  const suffix = end < text.length ? " …" : "";
+  const before = escapeHtml(text.slice(start, idx));
+  const match = escapeHtml(text.slice(idx, idx + q.length));
+  const after = escapeHtml(text.slice(idx + q.length, end));
+  return prefix + before + "<mark>" + match + "</mark>" + after + suffix;
 }
 
 function initFabScrollHide() {

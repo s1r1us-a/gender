@@ -1094,6 +1094,244 @@
   body.viewer-mode .cell { cursor: default; }
 
   /* ============================================================
+     Rückblick (#9): Fullscreen-Story-Modal mit Swipe-Cards.
+     ============================================================ */
+  .review-cta {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px;
+  }
+  .review-cta-title {
+    font-weight: 700; font-size: 15px; margin-bottom: 4px;
+  }
+  .review-cta-sub {
+    font-size: 12px; color: var(--text-dim); line-height: 1.4;
+  }
+  .review-cta .btn { flex-shrink: 0; white-space: nowrap; }
+
+  .review-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; flex-direction: column;
+    background: linear-gradient(180deg, var(--bg-0), var(--bg-1) 55%, var(--bg-0));
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+    animation: review-in 0.25s ease;
+  }
+  .review-overlay[hidden] { display: none; }
+  @keyframes review-in {
+    from { opacity: 0; transform: scale(1.02); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .review-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 14px 16px 10px;
+  }
+  .review-toggle {
+    display: inline-flex;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 12px; padding: 3px; gap: 2px;
+  }
+  .review-toggle button {
+    appearance: none; background: transparent; border: none;
+    color: var(--text-dim);
+    font-size: 13px; font-weight: 600;
+    padding: 7px 14px; border-radius: 9px;
+    cursor: pointer;
+    transition: background .14s ease, color .14s ease;
+  }
+  .review-toggle button[aria-checked="true"] {
+    background: linear-gradient(135deg, var(--flag-pink) 0%, var(--flag-purple) 100%);
+    color: #fff;
+  }
+  .review-close { width: 40px; height: 40px; font-size: 20px; }
+  .review-strip {
+    flex: 1;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 16px;
+    padding: 8px 16px 16px;
+    scrollbar-width: none;
+  }
+  .review-strip::-webkit-scrollbar { display: none; }
+  .review-card {
+    flex: 0 0 calc(100% - 0px);
+    max-width: 480px;
+    scroll-snap-align: center;
+    margin: 0 auto;
+    background: var(--card-strong);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 28px 24px;
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    gap: 18px;
+    min-height: 460px;
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .review-card::before {
+    content: "";
+    position: absolute; inset: -1px;
+    background: linear-gradient(135deg,
+      rgba(255, 117, 162, 0.18) 0%,
+      rgba(190, 24, 214, 0.10) 50%,
+      rgba(51, 62, 189, 0.18) 100%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .review-card .eyebrow {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text-faint);
+  }
+  .review-card .headline {
+    font-size: clamp(22px, 4vw + 10px, 32px);
+    font-weight: 800; line-height: 1.15;
+    background: linear-gradient(135deg, var(--pink), #e7a8de, var(--blue));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .review-card .number {
+    font-size: clamp(40px, 8vw + 20px, 64px);
+    font-weight: 800; line-height: 1;
+    color: var(--text);
+  }
+  .review-card .sub {
+    color: var(--text-dim); font-size: 14px; line-height: 1.4;
+  }
+  .review-card .row {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .review-card .row .col { flex: 1; min-width: 0; }
+  .review-card .donut {
+    width: 180px; height: 180px;
+    margin: 0 auto;
+  }
+  .review-card .legend {
+    display: flex; justify-content: center;
+    gap: 12px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .review-card .legend .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block; margin-right: 6px; vertical-align: middle;
+  }
+  .review-card .extreme {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.04);
+  }
+  .review-card .extreme .swatch {
+    width: 48px; height: 48px; border-radius: 14px;
+    flex-shrink: 0;
+  }
+  .review-card .extreme .lbl { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.8px; }
+  .review-card .extreme .val { font-size: 22px; font-weight: 700; }
+  .review-card .extreme .day { font-size: 12px; color: var(--text-dim); }
+
+  .review-dots {
+    display: flex; justify-content: center; gap: 6px;
+    padding: 6px 0 14px;
+  }
+  .review-dots .d {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(255,255,255,0.20);
+    transition: background .15s ease, transform .15s ease;
+  }
+  .review-dots .d.active {
+    background: #fff;
+    transform: scale(1.4);
+  }
+  .review-empty {
+    text-align: center; color: var(--text-dim);
+    padding: 40px 20px;
+  }
+
+  /* ============================================================
+     Volltext-Suche (#40): klappt unter dem Header auf.
+     ============================================================ */
+  .search-panel {
+    background: var(--card-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin: 0 0 16px;
+    backdrop-filter: blur(20px) saturate(140%);
+    box-shadow: var(--shadow);
+  }
+  .search-panel[hidden] { display: none; }
+  .search-input-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .search-icon { font-size: 16px; line-height: 1; opacity: 0.7; }
+  .search-input-row input[type=search] {
+    flex: 1;
+    appearance: none; -webkit-appearance: none;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 15px;
+  }
+  .search-input-row input[type=search]::-webkit-search-cancel-button { display: none; }
+  .search-close {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim);
+    width: 36px; height: 36px; border-radius: 10px;
+    cursor: pointer; font-size: 16px;
+  }
+  .search-close:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .search-results {
+    margin-top: 10px;
+    max-height: 360px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .search-results:empty { margin-top: 0; }
+  .search-row {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  .search-row:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); }
+  .search-row-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .search-row-head .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block;
+  }
+  .search-row-head .val { color: var(--text); font-weight: 600; }
+  .search-row-tags { color: var(--text-faint); font-size: 11px; }
+  .search-row-snip {
+    font-size: 13px; color: var(--text);
+    line-height: 1.4;
+    overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .search-row mark {
+    background: rgba(255, 198, 80, 0.35);
+    color: var(--text);
+    padding: 0 2px; border-radius: 3px;
+  }
+  .search-empty {
+    color: var(--text-dim); font-size: 13px;
+    padding: 8px 4px;
+  }
+
+  /* ============================================================
      Zeitfenster-Toggle (#8): segmented control über allen Stats.
      ============================================================ */
   .range-card { padding: 12px 14px; }
