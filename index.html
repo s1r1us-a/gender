@@ -8,7 +8,11 @@
 <link rel="stylesheet" href="app.css" />
 </head>
 <body>
-  <div id="loginGate" class="login-gate" aria-hidden="false">
+  <div id="authBoot" class="auth-boot" aria-hidden="true">
+    <div class="auth-boot-mark">⚧</div>
+  </div>
+
+  <div id="loginGate" class="login-gate" aria-hidden="true" hidden>
     <div class="login-card">
       <div class="login-brand">
         <div class="login-mark">⚧</div>
@@ -240,6 +244,7 @@
   <div class="sheet" id="sheet" role="dialog" aria-modal="true">
     <h2 id="sheetTitle">Check-in</h2>
     <div class="subtitle" id="sheetSubtitle">Wie fühlst du dich gerade?</div>
+    <div class="readonly-hint" id="readonlyHint">Dieser Tag liegt in der Zukunft — Check-ins sind hier nicht möglich.</div>
     <div class="feel">
       <div class="sym-big" id="feelSym">⚧</div>
       <div class="feel-label" id="feelLabel">neutral · fluid</div>

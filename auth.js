@@ -159,6 +159,12 @@ export function initAuth() {
     location.reload();
   });
 
+  /* Erster Auth-Callback entfernt den Boot-Splash — egal ob User
+     eingeloggt ist oder nicht. So gibt es kein kurzes Aufblitzen
+     des Login-Formulars vor der automatischen Weiterleitung. */
+  const authBoot = document.getElementById("authBoot");
+  const removeAuthBoot = () => { if (authBoot) authBoot.hidden = true; };
+
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
       state.currentUser = null;
@@ -166,6 +172,7 @@ export function initAuth() {
       applyRoleUI();
       notify();
       showLoginView();
+      removeAuthBoot();
       return;
     }
     const role = roleFor(user.email);
@@ -173,6 +180,7 @@ export function initAuth() {
       // Unbekannter Account: sofort wieder rauswerfen.
       await signOut(auth).catch(() => {});
       loginError.textContent = "Kein zugelassener Account.";
+      removeAuthBoot();
       return;
     }
     state.currentUser = user;
@@ -185,6 +193,7 @@ export function initAuth() {
       hideLoginGate();
       maybeShowOnboarding();
     }
+    removeAuthBoot();
     // Falls vor dem Login Pending-Ops anstanden, jetzt sync versuchen.
     if (role === "admin") flushPending();
   });
