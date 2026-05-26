@@ -334,37 +334,6 @@
     animation: hero-pulse 3.4s ease-in-out infinite;
     transition: border-color .8s ease, box-shadow .8s ease;
   }
-  /* Rotierender Schimmer am Rand: conic-gradient als äußerer Ring, der per
-     Mask nur den Border-Bereich abdeckt — wirkt wie ein langsam wanderndes
-     Highlight um die Karte herum. */
-  .hero-card::before {
-    content: "";
-    position: absolute;
-    inset: -3px;
-    border-radius: inherit;
-    padding: 3px;
-    background: conic-gradient(
-      from var(--hero-spin, 0deg),
-      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.0) 0deg,
-      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.95) 60deg,
-      rgba(255, 255, 255, 0.85) 90deg,
-      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.95) 120deg,
-      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.0) 220deg,
-      rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.0) 360deg
-    );
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-            mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-            mask-composite: exclude;
-    pointer-events: none;
-    z-index: -1;
-    animation: hero-spin 8s linear infinite;
-    opacity: 0.85;
-  }
   /* Sanftes Hintergrund-Aurora-Pulsen hinter den Inhalten. */
   .hero-card::after {
     content: "";
@@ -392,21 +361,9 @@
         inset 0 0 90px rgba(var(--hero-r, 199), var(--hero-g, 155), var(--hero-b, 208), 0.18);
     }
   }
-  @keyframes hero-spin  { to { transform: rotate(360deg); } }
   @keyframes hero-aurora {
     0%, 100% { opacity: 0.55; transform: scale(0.96); }
     50%      { opacity: 1;    transform: scale(1.04); }
-  }
-  /* Conic-Gradient + transform via @property → animierbares Drehen ohne
-     dass `transform` auf das Pseudo-Element die Mask zerstört. */
-  @property --hero-spin {
-    syntax: "<angle>";
-    inherits: false;
-    initial-value: 0deg;
-  }
-  .hero-card { --hero-spin: 0deg; animation: hero-pulse 3.4s ease-in-out infinite, hero-spin-prop 8s linear infinite; }
-  @keyframes hero-spin-prop {
-    to { --hero-spin: 360deg; }
   }
 
   .hero-inner {
@@ -454,7 +411,6 @@
      Bewegungs-Animationen. */
   @media (prefers-reduced-motion: reduce) {
     .hero-card,
-    .hero-card::before,
     .hero-card::after,
     .hero-sym,
     .hero-value .num { animation: none !important; }
