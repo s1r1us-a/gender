@@ -85,6 +85,8 @@ function renderGrid() {
 function renderOverviewBars(stats) {
   const agg = computePeriodAggregates(stats);
   const container = document.getElementById("overviewBars");
+  const isViewer = document.body.classList.contains("viewer-mode");
+  const spectrumLabel = isViewer ? "Andreas' Spektrum" : "Mein Spektrum";
 
   function valueBar(label, value, sub) {
     if (value == null || isNaN(value)) {
@@ -111,7 +113,7 @@ function renderOverviewBars(stats) {
     if (!agg.allDayAvgs.length) {
       return `
         <div class="bar-row">
-          <div class="bar-head"><span class="bar-name">Mein Spektrum</span><span class="bar-count">—</span></div>
+          <div class="bar-head"><span class="bar-name">${spectrumLabel}</span><span class="bar-count">—</span></div>
           <div class="spectrum-bar no-data"></div>
           <div class="bar-meta"><span>keine Daten</span><span class="lbl">—</span></div>
         </div>`;
@@ -135,7 +137,7 @@ function renderOverviewBars(stats) {
     return `
       <div class="bar-row">
         <div class="bar-head">
-          <span class="bar-name">Mein Spektrum</span>
+          <span class="bar-name">${spectrumLabel}</span>
           <span class="bar-count">${agg.trackedDays} Tage</span>
         </div>
         <div class="spectrum-bar">
@@ -183,6 +185,11 @@ function renderHeroToday(stats) {
   const agg = computePeriodAggregates(stats);
   const todayDk = dayKey(new Date());
   const todayCount = state.data[todayDk] ? Object.keys(state.data[todayDk]).length : 0;
+  /* Im Besucher-Modus (echte viewer-Rolle ODER Admin-Vorschau) wird nicht
+     mehr von "Du" gesprochen, sondern in dritter Person über den Account-
+     Inhaber. Name ist fest auf "Andreas" gesetzt. */
+  const isViewer = document.body.classList.contains("viewer-mode");
+  const ownerName = "Andreas";
   /* Hero-Karten-Farbe setzen: heute-Schnitt → Wert-Farbe, sonst
      dezenter Lila-Fallback. render.js setzt die Variablen am Card,
      damit das CSS-Animation-System sie verwenden kann. */
@@ -196,10 +203,16 @@ function renderHeroToday(stats) {
     card.style.setProperty("--hero-hex", heroColor.hex);
   }
   if (agg.todayAvg == null) {
+    const emptyTitle = isViewer
+      ? `Wie fühlt sich ${ownerName} gerade?`
+      : "Wie fühlst du dich gerade?";
+    const emptySub = isViewer
+      ? `Heute noch kein Check-in von ${ownerName}.`
+      : "Heute noch kein Check-in. Trag deinen Moment ein.";
     inner.innerHTML = `
       <div class="hero-empty">
-        <div class="hero-empty-title">Wie fühlst du dich gerade?</div>
-        <div class="hero-empty-sub">Heute noch kein Check-in. Trag deinen Moment ein.</div>
+        <div class="hero-empty-title">${emptyTitle}</div>
+        <div class="hero-empty-sub">${emptySub}</div>
         <button class="btn-checkin" id="heroCheckinBtn" type="button">Jetzt Check-in</button>
       </div>`;
     const btn = document.getElementById("heroCheckinBtn");
@@ -228,10 +241,14 @@ function renderHeroToday(stats) {
       trendHtml = `<span class="hero-trend"><span class="arrow" style="color:${c.hex}">${arrow}</span> ${Math.abs(diff).toFixed(0)} Punkte ${word} als letzte Tage</span>`;
     }
   }
+  const eyebrowText = isViewer ? `${ownerName} heute` : "Du heute";
+  const countHintText = isViewer
+    ? `${todayCount} Eintrag${todayCount === 1 ? "" : "e"} heute`
+    : `${todayCount} Eintrag${todayCount === 1 ? "" : "e"} heute · jeder Tap legt einen neuen an`;
   inner.innerHTML = `
     <div class="hero-sym" style="color:${c.hex}; text-shadow: 0 0 28px ${c.hex};">${sym}</div>
     <div class="hero-main">
-      <div class="hero-eyebrow">Du heute</div>
+      <div class="hero-eyebrow">${eyebrowText}</div>
       <div class="hero-value">
         <span class="num" style="color:${c.hex}">${v.toFixed(0)}</span>
         <span class="lbl">${valueToLabel(v)}</span>
@@ -240,7 +257,7 @@ function renderHeroToday(stats) {
     </div>
     <div class="hero-cta">
       <button class="btn-checkin" id="heroCheckinBtn" type="button">+ Weiterer Check-in</button>
-      <div class="hero-count-hint">${todayCount} Eintrag${todayCount === 1 ? "" : "e"} heute · jeder Tap legt einen neuen an</div>
+      <div class="hero-count-hint">${countHintText}</div>
     </div>
   `;
   const btn = document.getElementById("heroCheckinBtn");
@@ -1040,6 +1057,16 @@ function renderInsights(stats) {
   `).join("");
 }
 
+/* Tauscht Texte von Elementen mit data-admin-text + data-viewer-text
+   abhängig vom aktuellen Modus (echte Viewer-Rolle oder Admin-Vorschau).
+   Wird in renderAll() aufgerufen, ist also nach jedem Re-Render aktuell. */
+function applyViewerSwapTexts() {
+  const isViewer = document.body.classList.contains("viewer-mode");
+  for (const el of document.querySelectorAll("[data-admin-text][data-viewer-text]")) {
+    el.textContent = isViewer ? el.dataset.viewerText : el.dataset.adminText;
+  }
+}
+
 function applyMoodBackground(stats) {
   const allAvg = avg(Object.values(stats.dayAvgs));
   const c = allAvg != null ? valueToColor(allAvg) : { r: 199, g: 155, b: 208 };
@@ -1056,6 +1083,10 @@ function applyMoodBackground(stats) {
 }
 
 export function renderAll() {
+  /* Statische Texte mit data-admin-text/data-viewer-text passend zum
+     aktiven Modus aktualisieren. So bleiben „Dein Spektrum" (Admin) und
+     „Andreas' Spektrum" (Viewer/Vorschau) korrekt nach jedem Render. */
+  applyViewerSwapTexts();
   renderGrid();
   /* Stats werden zweifach berechnet: einmal mit allen Daten (für Karten,
      die ihren eigenen Sinn haben — Heatmap, Hero, Sparkline, Insights),

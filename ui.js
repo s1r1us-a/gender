@@ -1194,6 +1194,9 @@ function initPreviewToggle() {
     btn.textContent = on ? "🚪" : "👁";
     btn.title = on ? "Besucher-Vorschau verlassen" : "In Besucher-Vorschau umschalten";
     btn.setAttribute("aria-label", btn.title);
+    /* Re-Render, damit Andreas/Du-Texte und alle anderen viewer-mode-
+       abhängigen Inhalte sofort aktualisiert werden. */
+    notify();
   };
 
   btn.addEventListener("click", () => {
@@ -1477,30 +1480,61 @@ function initFabScrollHide() {
 }
 
 function initInfoCards() {
-  /* Native <details>/<summary>-Toggle übernehmen lassen. preventDefault auf
-     click ist race-anfällig (insb. iOS Safari schaltet vor dem Listener
-     nativ um → wasOpen liest falsch → öffnet sofort wieder). Stattdessen:
-     - 'toggle' (capture, da nicht-bubbling) erzwingt "nur eine offen"
-     - Document-click schließt bei Klick außerhalb
-     - ESC schließt alle */
+  /* Info-Cards (<details class="info">) komplett explizit steuern, statt
+     native Toggle + Outside-Close zu mischen. Die alte Mischung produzierte
+     auf iOS Safari Race-Conditions, weil die Reihenfolge von pointerdown /
+     click / native default action / toggle dort nicht deterministisch ist.
+
+     Strategie:
+     1. pointerdown auf Summary CACHED den open-State BEVOR irgendein Browser
+        nativ togglet. Beim anschließenden click-Listener nutzen wir diesen
+        Cache statt erneut den DOM zu lesen.
+     2. click-Listener auf Summary macht preventDefault + stopPropagation
+        und togglet manuell. So setzen wir am Ende immer den Endzustand,
+        den wir wollen — egal in welcher Reihenfolge Safari die Events
+        abarbeitet.
+     3. pointerdown auf Document schließt offene Info-Cards bei Klick
+        außerhalb. pointerdown statt click, weil click auf Mobile mitunter
+        sehr spät feuert (300-ms-Delay-Reste).
+     4. ESC schließt alle. */
+  const allOpen = () => document.querySelectorAll("details.info[open]");
   const closeAll = (except = null) => {
-    for (const d of document.querySelectorAll("details.info[open]")) {
-      if (d !== except) d.removeAttribute("open");
-    }
+    for (const d of allOpen()) if (d !== except) d.removeAttribute("open");
   };
-  document.addEventListener("toggle", (ev) => {
-    const d = ev.target;
-    if (!(d instanceof HTMLDetailsElement)) return;
-    if (!d.classList.contains("info")) return;
-    if (d.open) closeAll(d);
-  }, true);
-  document.addEventListener("click", (ev) => {
-    const opened = document.querySelectorAll("details.info[open]");
-    if (!opened.length) return;
-    for (const d of opened) {
+
+  for (const summary of document.querySelectorAll("details.info > summary")) {
+    summary.addEventListener("pointerdown", () => {
+      summary._infoWasOpen = summary.parentElement.hasAttribute("open");
+    });
+    summary.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const det = summary.parentElement;
+      const wasOpen = (summary._infoWasOpen !== undefined)
+        ? summary._infoWasOpen
+        : det.hasAttribute("open");
+      delete summary._infoWasOpen;
+      if (wasOpen) {
+        det.removeAttribute("open");
+      } else {
+        closeAll(det);
+        det.setAttribute("open", "");
+      }
+    });
+  }
+
+  document.addEventListener("pointerdown", (ev) => {
+    if (!allOpen().length) return;
+    /* Klick auf eine Summary nicht hier behandeln — der Summary-eigene
+       Click-Handler übernimmt. */
+    if (ev.target.closest && ev.target.closest("details.info > summary")) return;
+    /* Klick innerhalb des <p>-Inhalts einer offenen Info-Card: offen lassen
+       (Text-Auswahl, Link-Klick falls jemals nötig). */
+    for (const d of allOpen()) {
       if (!d.contains(ev.target)) d.removeAttribute("open");
     }
   });
+
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") closeAll();
   });
